@@ -1,26 +1,43 @@
 /**
- * popup.js - Modernized Extension UI Controller
- * Manages DevTools-grade inspection UI, real-time filtering, structured XML views, and dependency lineage.
+ * popup.js - Modernized Extension UI & Table Matrix Exporter
+ * Features: DevTools Card Inspector, Comprehensive Table Matrix View, and Multi-Format CSV/JSON Exporters.
  */
 (function () {
   'use strict';
 
   const STORAGE_KEY = 'ems_captured_apis';
 
-  // DOM references
+  // DOM elements
   const apiListContainer = document.getElementById('apiList');
-  const btnExport = document.getElementById('btnExport');
+  const tableViewContainer = document.getElementById('tableViewContainer');
+  const matrixTable = document.getElementById('matrixTable');
+  const btnToggleView = document.getElementById('btnToggleView');
+  const viewToggleLabel = document.getElementById('viewToggleLabel');
+
+  const exportDropdownContainer = document.getElementById('exportDropdownContainer');
+  const btnExportMenu = document.getElementById('btnExportMenu');
+  const btnExportCsvDeps = document.getElementById('btnExportCsvDeps');
+  const btnExportCsvApis = document.getElementById('btnExportCsvApis');
+  const btnExportJson = document.getElementById('btnExportJson');
+  const btnDownloadActiveTableCsv = document.getElementById('btnDownloadActiveTableCsv');
+
   const btnClear = document.getElementById('btnClear');
   const searchInput = document.getElementById('searchInput');
   const countAllEl = document.getElementById('countAll');
   const countDepsEl = document.getElementById('countDeps');
   const countErrorsEl = document.getElementById('countErrors');
+  const tableDepsCount = document.getElementById('tableDepsCount');
+  const tableApisCount = document.getElementById('tableApisCount');
   const toastEl = document.getElementById('toast');
   const filterChips = document.querySelectorAll('.chip');
+  const tableSubtabs = document.querySelectorAll('.table-subtab');
 
+  // Application State
   let currentLogs = [];
   let computedLogs = [];
   let activeFilter = 'all'; // 'all', 'deps', 'errors'
+  let currentViewMode = 'cards'; // 'cards' | 'table'
+  let activeTableTab = 'matrix'; // 'matrix' | 'summary'
   let toastTimer = null;
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -29,23 +46,92 @@
   });
 
   function setupEventListeners() {
-    btnExport.addEventListener('click', handleExportJSON);
+    // 1. Export Dropdown Handling
+    btnExportMenu.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportDropdownContainer.classList.toggle('open');
+    });
+
+    document.addEventListener('click', () => {
+      exportDropdownContainer.classList.remove('open');
+    });
+
+    btnExportCsvDeps.addEventListener('click', () => {
+      exportDropdownContainer.classList.remove('open');
+      handleExportCsvDependencies();
+    });
+
+    btnExportCsvApis.addEventListener('click', () => {
+      exportDropdownContainer.classList.remove('open');
+      handleExportCsvApis();
+    });
+
+    btnExportJson.addEventListener('click', () => {
+      exportDropdownContainer.classList.remove('open');
+      handleExportJSON();
+    });
+
+    btnDownloadActiveTableCsv.addEventListener('click', () => {
+      if (activeTableTab === 'matrix') {
+        handleExportCsvDependencies();
+      } else {
+        handleExportCsvApis();
+      }
+    });
+
+    // 2. View Mode Toggle (Cards vs Full Table)
+    btnToggleView.addEventListener('click', () => {
+      if (currentViewMode === 'cards') {
+        currentViewMode = 'table';
+        btnToggleView.classList.add('active-view');
+        viewToggleLabel.textContent = 'Cards View';
+        apiListContainer.style.display = 'none';
+        tableViewContainer.style.display = 'flex';
+        renderActiveTableView();
+      } else {
+        currentViewMode = 'cards';
+        btnToggleView.classList.remove('active-view');
+        viewToggleLabel.textContent = 'Table View';
+        apiListContainer.style.display = 'flex';
+        tableViewContainer.style.display = 'none';
+        renderList();
+      }
+    });
+
+    // 3. Table Sub-tabs
+    tableSubtabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        tableSubtabs.forEach((t) => t.classList.remove('active'));
+        tab.classList.add('active');
+        activeTableTab = tab.getAttribute('data-table-tab') || 'matrix';
+        renderActiveTableView();
+      });
+    });
+
+    // 4. Clear and Filter
     btnClear.addEventListener('click', handleClearLogs);
-    searchInput.addEventListener('input', renderList);
+    searchInput.addEventListener('input', () => {
+      if (currentViewMode === 'cards') {
+        renderList();
+      } else {
+        renderActiveTableView();
+      }
+    });
 
     filterChips.forEach((chip) => {
       chip.addEventListener('click', () => {
         filterChips.forEach((c) => c.classList.remove('active'));
         chip.classList.add('active');
         activeFilter = chip.getAttribute('data-filter') || 'all';
-        renderList();
+        if (currentViewMode === 'cards') {
+          renderList();
+        } else {
+          renderActiveTableView();
+        }
       });
     });
   }
 
-  /**
-   * Retrieves logs and computes dependencies & parsed structures.
-   */
   function loadLogs() {
     chrome.storage.local.get([STORAGE_KEY], (res) => {
       currentLogs = res[STORAGE_KEY] || [];
@@ -53,13 +139,14 @@
 
       computeDataAndLineage();
       updateHeaderCounts();
-      renderList();
+      if (currentViewMode === 'cards') {
+        renderList();
+      } else {
+        renderActiveTableView();
+      }
     });
   }
 
-  /**
-   * Pre-processes logs with dependencyEngine.js
-   */
   function computeDataAndLineage() {
     computedLogs = [];
 
@@ -83,6 +170,14 @@
         }
       }
 
+      dependencies = dependencies.map((dep, depIdx) => ({
+        ...dep,
+        depIndex: depIdx + 1,
+        targetApiNo: i + 1,
+        targetMethod: current.method,
+        targetUrl: current.url
+      }));
+
       computedLogs.push({
         ...current,
         index: i + 1,
@@ -101,17 +196,19 @@
     countAllEl.textContent = String(total);
     countDepsEl.textContent = String(depsCount);
     countErrorsEl.textContent = String(errorsCount);
+
+    let totalDepMappings = 0;
+    computedLogs.forEach((item) => {
+      totalDepMappings += (item.dependencies || []).length;
+    });
+    tableDepsCount.textContent = String(totalDepMappings);
+    tableApisCount.textContent = String(total);
   }
 
-  /**
-   * Renders the filtered and searched API items.
-   */
-  function renderList() {
+  function getFilteredApis() {
     const query = (searchInput.value || '').trim().toLowerCase();
-    apiListContainer.innerHTML = '';
 
-    const filtered = computedLogs.filter((item) => {
-      // 1. Chip filter check
+    return computedLogs.filter((item) => {
       if (activeFilter === 'deps' && (!item.dependencies || item.dependencies.length === 0)) {
         return false;
       }
@@ -119,13 +216,32 @@
         return false;
       }
 
-      // 2. Search query check
       if (!query) return true;
       const inUrl = item.url.toLowerCase().includes(query);
       const inMethod = item.method.toLowerCase().includes(query);
       const inStatus = String(item.status).includes(query);
-      return inUrl || inMethod || inStatus;
+
+      let inDeps = false;
+      if (item.dependencies) {
+        inDeps = item.dependencies.some(
+          (d) =>
+            d.targetKey.toLowerCase().includes(query) ||
+            d.targetValue.toLowerCase().includes(query) ||
+            d.sourceKey.toLowerCase().includes(query) ||
+            d.targetLocation.toLowerCase().includes(query) ||
+            d.sourceXPath.toLowerCase().includes(query)
+        );
+      }
+
+      return inUrl || inMethod || inStatus || inDeps;
     });
+  }
+  // ========================================================
+  // RENDER 1: Card List View
+  // ========================================================
+  function renderList() {
+    apiListContainer.innerHTML = '';
+    const filtered = getFilteredApis();
 
     if (filtered.length === 0) {
       apiListContainer.innerHTML = `
@@ -146,9 +262,6 @@
     });
   }
 
-  /**
-   * Builds an interactive API entry card.
-   */
   function createApiCard(api) {
     const card = document.createElement('div');
     card.className = 'api-card';
@@ -159,22 +272,20 @@
     const statusClass = isSuccess ? 'status-2xx' : 'status-err';
     const depCount = api.dependencies ? api.dependencies.length : 0;
 
-    // Parse URL for clean display
     let urlPath = api.url;
     let urlHost = '';
     try {
       const parsedUrl = new URL(api.url);
       urlPath = parsedUrl.pathname + parsedUrl.search;
       urlHost = parsedUrl.host;
-    } catch (e) {
-      // Relative or non-standard URL
-    }
+    } catch (e) {}
 
     const durationText = api.durationMs ? `${api.durationMs}ms` : '';
 
     card.innerHTML = `
       <div class="card-header">
         <div class="card-meta-left">
+          <span style="font-size: 11px; font-weight: 700; color: var(--text-faint);">#${api.index}</span>
           <span class="method-badge ${methodClass}">${escapeHtml(api.method)}</span>
           <span class="status-badge ${statusClass}">${api.status || 'ERR'}</span>
           <div class="url-display" title="${escapeHtml(api.url)}">
@@ -216,12 +327,10 @@
           </div>
         </div>
 
-        <!-- Dependencies Tab -->
         <div class="tab-pane ${depCount > 0 ? 'active' : ''}" data-pane-content="deps">
           ${renderDependenciesPane(api.dependencies)}
         </div>
 
-        <!-- Payload Tab -->
         <div class="tab-pane ${depCount === 0 ? 'active' : ''}" data-pane-content="payload">
           <div class="pane-view-structured">
             ${renderStructuredXml(api.parsedRequest, 'Request')}
@@ -238,7 +347,6 @@
           </div>
         </div>
 
-        <!-- Response Tab -->
         <div class="tab-pane" data-pane-content="response">
           <div class="pane-view-structured">
             ${renderStructuredXml(api.parsedResponse, 'Response')}
@@ -257,13 +365,11 @@
       </div>
     `;
 
-    // Accordion toggle
     const header = card.querySelector('.card-header');
     header.addEventListener('click', () => {
       card.classList.toggle('open');
     });
 
-    // Sub-tabs switching
     const tabBtns = card.querySelectorAll('.tab-btn');
     const tabPanes = card.querySelectorAll('.tab-pane');
 
@@ -280,7 +386,6 @@
       });
     });
 
-    // Structured vs Raw view mode toggle
     const toggleOpts = card.querySelectorAll('.toggle-opt');
     toggleOpts.forEach((opt) => {
       opt.addEventListener('click', (e) => {
@@ -306,36 +411,29 @@
       });
     });
 
-    // Copy XML buttons
     const copyRawBtns = card.querySelectorAll('.btn-copy-raw');
     copyRawBtns.forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const text = btn.getAttribute('data-copy');
-        copyToClipboard(text);
+        copyToClipboard(btn.getAttribute('data-copy'));
       });
     });
 
-    // Delegated copy buttons inside card (XPath, values)
     card.addEventListener('click', (e) => {
       const copyTarget = e.target.closest('[data-copy-text]');
       if (copyTarget) {
         e.stopPropagation();
-        const text = copyTarget.getAttribute('data-copy-text');
-        copyToClipboard(text);
+        copyToClipboard(copyTarget.getAttribute('data-copy-text'));
       }
     });
 
     return card;
   }
 
-  /**
-   * Renders the dependencies flow view with visual cards.
-   */
   function renderDependenciesPane(dependencies) {
     if (!dependencies || dependencies.length === 0) {
       return `
-        <div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px;">
+        <div style="padding: 14px; text-align: center; color: var(--text-muted); font-size: 11.5px;">
           No incoming data dependencies detected. All values appear to be user inputs or constants.
         </div>
       `;
@@ -386,13 +484,10 @@
     return `<div class="dep-flow-container">${itemsHtml}</div>`;
   }
 
-  /**
-   * Renders structured Parameters & Datasets tables.
-   */
   function renderStructuredXml(parsedObj, label) {
     if (!parsedObj || !parsedObj.isValidNexacro) {
       return `
-        <div style="padding: 12px; color: var(--text-muted); font-size: 12px;">
+        <div style="padding: 10px; color: var(--text-muted); font-size: 11.5px;">
           No Nexacro Parameters or Datasets detected in this ${label}. Switch to "Raw XML" view to see full payload.
         </div>
       `;
@@ -400,7 +495,6 @@
 
     let html = '';
 
-    // 1. Parameters Table
     const paramKeys = Object.keys(parsedObj.parameters || {});
     if (paramKeys.length > 0) {
       let rows = '';
@@ -430,7 +524,7 @@
                   <th>Parameter ID</th>
                   <th>Value</th>
                   <th>XPath</th>
-                  <th style="width: 30px;"></th>
+                  <th style="width: 25px;"></th>
                 </tr>
               </thead>
               <tbody>${rows}</tbody>
@@ -440,7 +534,6 @@
       `;
     }
 
-    // 2. Datasets Tables
     const datasetKeys = Object.keys(parsedObj.datasets || {});
     if (datasetKeys.length > 0) {
       datasetKeys.forEach((dsId) => {
@@ -468,7 +561,7 @@
         }
 
         html += `
-          <div class="structured-section" style="margin-top: 10px;">
+          <div class="structured-section" style="margin-top: 8px;">
             <div class="structured-header">
               <span>Dataset: <strong style="color: #c084fc;">${escapeHtml(dsId)}</strong> (${rows.length} rows, ${cols.length} cols)</span>
             </div>
@@ -486,16 +579,12 @@
     return html;
   }
 
-  /**
-   * Indents and syntax-highlights XML strings for comfortable reading.
-   */
   function formatAndHighlightXml(xml) {
     if (!xml || typeof xml !== 'string') return '<span style="color: var(--text-faint);">(empty)</span>';
     const trimmed = xml.trim();
     if (!trimmed.startsWith('<')) return escapeHtml(trimmed);
 
     try {
-      // 1. Indent XML
       let formatted = '';
       const reg = /(>)(<)(\/*)/g;
       const cleanXml = trimmed.replace(reg, '$1\r\n$2$3');
@@ -522,9 +611,7 @@
         pad += indent;
       });
 
-      // 2. Syntax Highlight with safe HTML escaping
       const escaped = escapeHtml(formatted.trim());
-      // Color tags, attributes, and values
       const highlighted = escaped
         .replace(/(&lt;\/?)([\w:-]+)/g, '$1<span class="xml-tag">$2</span>')
         .replace(/([\w:-]+)(=)(&quot;.*?&quot;)/g, '<span class="xml-attr-name">$1</span>$2<span class="xml-attr-val">$3</span>')
@@ -535,31 +622,302 @@
       return escapeHtml(trimmed);
     }
   }
+  // ========================================================
+  // RENDER 2: Comprehensive Table Matrix View
+  // ========================================================
+  function renderActiveTableView() {
+    matrixTable.innerHTML = '';
+    const filteredApis = getFilteredApis();
 
-  /**
-   * Copy string to clipboard with interactive toast notification.
-   */
-  function copyToClipboard(text) {
-    if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
-      showToast('Copied to clipboard!');
-    }).catch(() => {
-      showToast('Failed to copy');
+    if (activeTableTab === 'matrix') {
+      renderDependenciesMatrixTable(filteredApis);
+    } else {
+      renderApisSummaryTable(filteredApis);
+    }
+  }
+
+  function renderDependenciesMatrixTable(apis) {
+    const allDeps = [];
+    apis.forEach((api) => {
+      if (api.dependencies && api.dependencies.length > 0) {
+        api.dependencies.forEach((d) => allDeps.push(d));
+      }
+    });
+
+    if (allDeps.length === 0) {
+      matrixTable.innerHTML = `
+        <tbody>
+          <tr>
+            <td colspan="8" style="padding: 40px; text-align: center; color: var(--text-muted);">
+              No dependencies found matching current filters.
+            </td>
+          </tr>
+        </tbody>
+      `;
+      return;
+    }
+
+    let thead = `
+      <thead>
+        <tr>
+          <th style="width: 40px;">#</th>
+          <th>Target API</th>
+          <th>Target Field</th>
+          <th>Target XPath</th>
+          <th>Matched Value</th>
+          <th>Source API</th>
+          <th>Source Field</th>
+          <th>Source XPath</th>
+        </tr>
+      </thead>
+    `;
+
+    let tbody = '<tbody>';
+    allDeps.forEach((dep, idx) => {
+      let targetPath = dep.targetUrl;
+      let sourcePath = dep.sourceApiUrl;
+      try {
+        targetPath = new URL(dep.targetUrl).pathname;
+        sourcePath = new URL(dep.sourceApiUrl).pathname;
+      } catch (e) {}
+
+      tbody += `
+        <tr>
+          <td style="color: var(--text-faint);">${idx + 1}</td>
+          <td>
+            <span style="color: #60a5fa; font-weight: 600;">#${dep.targetApiNo} ${dep.targetMethod}</span>
+            <span style="color: var(--text-main);" title="${escapeHtml(dep.targetUrl)}">${escapeHtml(targetPath)}</span>
+          </td>
+          <td style="font-weight: 600; color: #93c5fd;">${escapeHtml(dep.targetKey)}</td>
+          <td style="color: #38bdf8; cursor: pointer;" title="Click to copy XPath" data-copy-text="${escapeAttr(dep.targetLocation)}">
+            ${escapeHtml(dep.targetLocation)} 📋
+          </td>
+          <td>
+            <span class="dep-val-pill" style="cursor: pointer;" title="Click to copy value" data-copy-text="${escapeAttr(dep.targetValue)}">
+              "${escapeHtml(dep.targetValue)}" 📋
+            </span>
+          </td>
+          <td>
+            <span style="color: #facc15; font-weight: 600;">${dep.sourceMethod}</span>
+            <span style="color: var(--text-muted);" title="${escapeHtml(dep.sourceApiUrl)}">${escapeHtml(sourcePath)}</span>
+          </td>
+          <td style="color: #c084fc;">${escapeHtml(dep.sourceKey)} (${dep.sourceType})</td>
+          <td style="color: #c084fc; cursor: pointer;" title="Click to copy XPath" data-copy-text="${escapeAttr(dep.sourceXPath)}">
+            ${escapeHtml(dep.sourceXPath)} 📋
+          </td>
+        </tr>
+      `;
+    });
+    tbody += '</tbody>';
+
+    matrixTable.innerHTML = thead + tbody;
+
+    matrixTable.querySelectorAll('[data-copy-text]').forEach((el) => {
+      el.addEventListener('click', () => {
+        copyToClipboard(el.getAttribute('data-copy-text'));
+      });
     });
   }
 
-  function showToast(msg) {
-    if (toastTimer) clearTimeout(toastTimer);
-    toastEl.textContent = msg;
-    toastEl.classList.add('show');
-    toastTimer = setTimeout(() => {
-      toastEl.classList.remove('show');
-    }, 1800);
+  function renderApisSummaryTable(apis) {
+    if (apis.length === 0) {
+      matrixTable.innerHTML = `
+        <tbody>
+          <tr>
+            <td colspan="9" style="padding: 40px; text-align: center; color: var(--text-muted);">
+              No API requests matching current filter.
+            </td>
+          </tr>
+        </tbody>
+      `;
+      return;
+    }
+
+    let thead = `
+      <thead>
+        <tr>
+          <th style="width: 40px;">#</th>
+          <th>Time</th>
+          <th>Method</th>
+          <th>Status</th>
+          <th>Duration</th>
+          <th>URL</th>
+          <th>⚡ Dependencies</th>
+          <th>Req Datasets</th>
+          <th>Res Datasets</th>
+        </tr>
+      </thead>
+    `;
+
+    let tbody = '<tbody>';
+    apis.forEach((api) => {
+      const timeStr = new Date(api.timestamp).toLocaleTimeString();
+      const depCount = (api.dependencies || []).length;
+      const isSuccess = api.status >= 200 && api.status < 300;
+      const statusColor = isSuccess ? '#34d399' : '#fb7185';
+
+      const reqDsCount = api.parsedRequest ? Object.keys(api.parsedRequest.datasets || {}).length : 0;
+      const resDsCount = api.parsedResponse ? Object.keys(api.parsedResponse.datasets || {}).length : 0;
+
+      tbody += `
+        <tr>
+          <td style="color: var(--text-faint);">${api.index}</td>
+          <td style="color: var(--text-muted);">${timeStr}</td>
+          <td style="font-weight: 700; color: ${api.method === 'POST' ? '#34d399' : '#60a5fa'};">${api.method}</td>
+          <td style="font-weight: 600; color: ${statusColor};">${api.status || 'ERR'}</td>
+          <td style="color: var(--text-faint);">${api.durationMs || 0}ms</td>
+          <td style="color: var(--text-main); max-width: 250px; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(api.url)}">
+            ${escapeHtml(api.url)}
+          </td>
+          <td>
+            ${
+              depCount > 0
+                ? `<span style="background: rgba(139, 92, 246, 0.2); color: #c084fc; padding: 2px 6px; border-radius: 4px; font-weight: 600;">⚡ ${depCount}</span>`
+                : '<span style="color: var(--text-faint);">0</span>'
+            }
+          </td>
+          <td style="color: var(--text-muted);">${reqDsCount}</td>
+          <td style="color: var(--text-muted);">${resDsCount}</td>
+        </tr>
+      `;
+    });
+    tbody += '</tbody>';
+
+    matrixTable.innerHTML = thead + tbody;
   }
 
-  /**
-   * Export all captured records into a structured JSON file.
-   */
+  // ========================================================
+  // EXPORT FUNCTIONS: CSV & JSON
+  // ========================================================
+  function escapeCsvCell(val) {
+    if (val === null || val === undefined) return '""';
+    const str = String(val).replace(/"/g, '""');
+    return `"${str}"`;
+  }
+
+  function createCsvContent(headers, rows) {
+    const headerLine = headers.map(escapeCsvCell).join(',');
+    const dataLines = rows.map((row) => row.map(escapeCsvCell).join(','));
+    return '\uFEFF' + [headerLine, ...dataLines].join('\r\n');
+  }
+
+  function downloadFile(content, filename, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast(`Exported ${filename}`);
+  }
+
+  function handleExportCsvDependencies() {
+    if (computedLogs.length === 0) {
+      alert('No data available to export.');
+      return;
+    }
+
+    const headers = [
+      'Index',
+      'Target_API_No',
+      'Target_Method',
+      'Target_URL',
+      'Target_Field',
+      'Target_XPath',
+      'Matched_Value',
+      'Source_API_ID',
+      'Source_Method',
+      'Source_URL',
+      'Source_Field',
+      'Source_XPath',
+      'Source_Type'
+    ];
+
+    const rows = [];
+    let count = 0;
+
+    computedLogs.forEach((api) => {
+      (api.dependencies || []).forEach((d) => {
+        count++;
+        rows.push([
+          count,
+          api.index,
+          api.method,
+          api.url,
+          d.targetKey,
+          d.targetLocation,
+          d.targetValue,
+          d.sourceApiId,
+          d.sourceMethod,
+          d.sourceApiUrl,
+          d.sourceKey,
+          d.sourceXPath,
+          d.sourceType
+        ]);
+      });
+    });
+
+    if (rows.length === 0) {
+      alert('No cross-API dependencies found yet to export.');
+      return;
+    }
+
+    const csvData = createCsvContent(headers, rows);
+    downloadFile(csvData, `nexacro_dependencies_matrix_${Date.now()}.csv`, 'text/csv;charset=utf-8;');
+  }
+
+  function handleExportCsvApis() {
+    if (computedLogs.length === 0) {
+      alert('No API records captured yet.');
+      return;
+    }
+
+    const headers = [
+      'No',
+      'Timestamp',
+      'Formatted_Time',
+      'Client_Type',
+      'Method',
+      'Status',
+      'Duration_ms',
+      'URL',
+      'Dependencies_Count',
+      'Req_Params_Count',
+      'Req_Datasets_Count',
+      'Res_Params_Count',
+      'Res_Datasets_Count'
+    ];
+
+    const rows = computedLogs.map((api) => {
+      const reqParamsCount = api.parsedRequest ? Object.keys(api.parsedRequest.parameters || {}).length : 0;
+      const reqDatasetsCount = api.parsedRequest ? Object.keys(api.parsedRequest.datasets || {}).length : 0;
+      const resParamsCount = api.parsedResponse ? Object.keys(api.parsedResponse.parameters || {}).length : 0;
+      const resDatasetsCount = api.parsedResponse ? Object.keys(api.parsedResponse.datasets || {}).length : 0;
+
+      return [
+        api.index,
+        api.timestamp,
+        new Date(api.timestamp).toISOString(),
+        api.clientType,
+        api.method,
+        api.status,
+        api.durationMs || 0,
+        api.url,
+        (api.dependencies || []).length,
+        reqParamsCount,
+        reqDatasetsCount,
+        resParamsCount,
+        resDatasetsCount
+      ];
+    });
+
+    const csvData = createCsvContent(headers, rows);
+    downloadFile(csvData, `nexacro_apis_summary_${Date.now()}.csv`, 'text/csv;charset=utf-8;');
+  }
+
   function handleExportJSON() {
     if (computedLogs.length === 0) {
       alert('No API records captured yet.');
@@ -572,6 +930,7 @@
       totalRequests: computedLogs.length,
       chain: computedLogs.map((item) => ({
         id: item.id,
+        index: item.index,
         timestamp: item.timestamp,
         durationMs: item.durationMs,
         clientType: item.clientType,
@@ -589,20 +948,10 @@
       }))
     };
 
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(exportPayload, null, 2));
-    const downloadAnchor = document.createElement('a');
-    const filename = `nexacro_api_chain_${Date.now()}.json`;
-
-    downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', filename);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
+    const jsonStr = JSON.stringify(exportPayload, null, 2);
+    downloadFile(jsonStr, `nexacro_api_chain_${Date.now()}.json`, 'application/json;charset=utf-8;');
   }
 
-  /**
-   * Clear storage logs.
-   */
   function handleClearLogs() {
     if (!confirm('Clear all captured Nexacro API logs?')) return;
     chrome.storage.local.set({ [STORAGE_KEY]: [] }, () => {
@@ -610,9 +959,31 @@
       computedLogs = [];
       chrome.action.setBadgeText({ text: '' });
       updateHeaderCounts();
-      renderList();
+      if (currentViewMode === 'cards') {
+        renderList();
+      } else {
+        renderActiveTableView();
+      }
       showToast('Logs cleared');
     });
+  }
+
+  function copyToClipboard(text) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Copied to clipboard!');
+    }).catch(() => {
+      showToast('Failed to copy');
+    });
+  }
+
+  function showToast(msg) {
+    if (toastTimer) clearTimeout(toastTimer);
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    toastTimer = setTimeout(() => {
+      toastEl.classList.remove('show');
+    }, 1800);
   }
 
   function escapeHtml(str) {

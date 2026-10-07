@@ -52,12 +52,12 @@
       background: rgba(17, 24, 39, 0.96);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border-subtle);
-      padding: 12px 16px;
+      padding: 10px 14px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 9px;
       flex-shrink: 0;
-      z-index: 10;
+      z-index: 20;
     }
 
     .header-top {
@@ -69,7 +69,7 @@
     .brand {
       display: flex;
       align-items: center;
-      gap: 9px;
+      gap: 8px;
     }
 
     .brand-icon {
@@ -84,19 +84,19 @@
     }
 
     .brand-icon svg {
-      width: 16px;
-      height: 16px;
+      width: 15px;
+      height: 15px;
       color: white;
     }
 
     .brand-title {
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 700;
-      letter-spacing: -0.3px;
+      letter-spacing: -0.2px;
       color: var(--text-main);
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
     }
 
     .live-dot {
@@ -111,7 +111,7 @@
     .header-actions {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }
 
     button {
@@ -119,12 +119,12 @@
       border: none;
       outline: none;
       border-radius: var(--radius-md);
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 600;
-      padding: 6px 12px;
+      padding: 5px 10px;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       transition: all 0.15s ease;
     }
 
@@ -149,10 +149,63 @@
       color: var(--text-main);
     }
 
+    .btn-secondary.active-view {
+      background: rgba(59, 130, 246, 0.2);
+      border-color: var(--accent-blue);
+      color: #93c5fd;
+    }
+
+    /* Export Dropdown Wrapper */
+    .dropdown-box {
+      position: relative;
+      display: inline-block;
+    }
+
+    .dropdown-menu {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 4px;
+      background: #1a2333;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+      z-index: 50;
+      min-width: 220px;
+      overflow: hidden;
+    }
+
+    .dropdown-box.open .dropdown-menu {
+      display: block;
+    }
+
+    .dropdown-item {
+      padding: 8px 12px;
+      color: var(--text-main);
+      font-size: 11.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .dropdown-item:hover {
+      background: #2563eb;
+      color: white;
+    }
+
+    .dropdown-divider {
+      height: 1px;
+      background: var(--border-subtle);
+      margin: 2px 0;
+    }
+
     /* Filter & Search Bar */
     .controls-row {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       align-items: center;
     }
 
@@ -176,9 +229,9 @@
       background: var(--bg-code);
       border: 1px solid var(--border-strong);
       color: var(--text-main);
-      padding: 6px 10px 6px 30px;
+      padding: 5px 10px 5px 30px;
       border-radius: var(--radius-md);
-      font-size: 12px;
+      font-size: 11.5px;
       transition: border-color 0.15s;
     }
 
@@ -190,7 +243,7 @@
 
     .filter-chips {
       display: flex;
-      gap: 6px;
+      gap: 5px;
     }
 
     .chip {
@@ -224,25 +277,33 @@
       color: #c084fc;
     }
 
-    /* Main Content Area */
+    /* Main Container */
+    #mainViewArea {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* 1. Request Cards List View */
     #apiList {
       flex: 1;
       overflow-y: auto;
-      padding: 12px 16px;
+      padding: 10px 14px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 9px;
     }
 
-    #apiList::-webkit-scrollbar {
+    #apiList::-webkit-scrollbar,
+    .table-scroll-wrap::-webkit-scrollbar {
       width: 6px;
+      height: 6px;
     }
 
-    #apiList::-webkit-scrollbar-track {
-      background: transparent;
-    }
-
-    #apiList::-webkit-scrollbar-thumb {
+    #apiList::-webkit-scrollbar-thumb,
+    .table-scroll-wrap::-webkit-scrollbar-thumb {
       background: #374151;
       border-radius: 3px;
     }
@@ -297,11 +358,11 @@
     }
 
     .card-header {
-      padding: 10px 14px;
+      padding: 9px 12px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
+      gap: 8px;
       cursor: pointer;
       user-select: none;
     }
@@ -309,15 +370,15 @@
     .card-meta-left {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
       overflow: hidden;
       flex: 1;
     }
 
     .method-badge {
-      font-size: 11px;
+      font-size: 10.5px;
       font-weight: 700;
-      padding: 2px 7px;
+      padding: 2px 6px;
       border-radius: var(--radius-sm);
       letter-spacing: 0.3px;
       flex-shrink: 0;
@@ -336,9 +397,9 @@
     }
 
     .status-badge {
-      font-size: 11px;
+      font-size: 10.5px;
       font-weight: 700;
-      padding: 2px 6px;
+      padding: 2px 5px;
       border-radius: var(--radius-sm);
       flex-shrink: 0;
     }
@@ -355,7 +416,7 @@
     }
 
     .url-display {
-      font-size: 12.5px;
+      font-size: 12px;
       font-weight: 500;
       color: var(--text-main);
       overflow: hidden;
@@ -371,14 +432,14 @@
 
     .url-host {
       color: var(--text-faint);
-      font-size: 11.5px;
+      font-size: 11px;
       margin-left: 4px;
     }
 
     .card-meta-right {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
       flex-shrink: 0;
     }
 
@@ -386,9 +447,9 @@
       background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(168, 85, 247, 0.25));
       color: #d8b4fe;
       border: 1px solid rgba(168, 85, 247, 0.4);
-      font-size: 11px;
+      font-size: 10.5px;
       font-weight: 600;
-      padding: 2px 8px;
+      padding: 2px 7px;
       border-radius: 999px;
       display: flex;
       align-items: center;
@@ -401,8 +462,8 @@
     }
 
     .chevron-icon {
-      width: 16px;
-      height: 16px;
+      width: 15px;
+      height: 15px;
       color: var(--text-faint);
       transition: transform 0.2s ease;
     }
@@ -417,9 +478,9 @@
       display: none;
       border-top: 1px solid var(--border-subtle);
       background: #0d1322;
-      padding: 12px 14px;
+      padding: 10px 12px;
       flex-direction: column;
-      gap: 10px;
+      gap: 9px;
     }
 
     .api-card.open .card-drawer {
@@ -432,20 +493,20 @@
       justify-content: space-between;
       align-items: center;
       border-bottom: 1px solid var(--border-subtle);
-      padding-bottom: 8px;
+      padding-bottom: 7px;
     }
 
     .nav-tabs {
       display: flex;
-      gap: 6px;
+      gap: 5px;
     }
 
     .tab-btn {
       background: transparent;
       color: var(--text-muted);
       border: 1px solid transparent;
-      font-size: 11.5px;
-      padding: 4px 10px;
+      font-size: 11px;
+      padding: 3px 8px;
       border-radius: var(--radius-sm);
     }
 
@@ -475,8 +536,8 @@
     }
 
     .toggle-opt {
-      font-size: 10.5px;
-      padding: 3px 8px;
+      font-size: 10px;
+      padding: 3px 7px;
       color: var(--text-muted);
       cursor: pointer;
       user-select: none;
@@ -491,7 +552,7 @@
     .tab-pane {
       display: none;
       flex-direction: column;
-      gap: 10px;
+      gap: 9px;
     }
 
     .tab-pane.active {
@@ -502,30 +563,30 @@
     .dep-flow-container {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 7px;
     }
 
     .dep-flow-item {
       background: #131c2e;
       border: 1px solid #1f2d48;
       border-radius: var(--radius-md);
-      padding: 10px 12px;
+      padding: 8px 10px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 7px;
     }
 
     .dep-row-top {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      font-size: 12px;
+      font-size: 11.5px;
     }
 
     .dep-target-field {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       font-weight: 600;
       color: #93c5fd;
     }
@@ -535,8 +596,8 @@
       border: 1px solid rgba(16, 185, 129, 0.3);
       color: #34d399;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 11.5px;
-      padding: 2px 7px;
+      font-size: 11px;
+      padding: 2px 6px;
       border-radius: var(--radius-sm);
     }
 
@@ -544,22 +605,22 @@
       display: grid;
       grid-template-columns: 1fr auto 1fr;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       background: var(--bg-code);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-sm);
-      padding: 8px 10px;
-      font-size: 11.5px;
+      padding: 7px 9px;
+      font-size: 11px;
     }
 
     .flow-col {
       display: flex;
       flex-direction: column;
-      gap: 3px;
+      gap: 2px;
     }
 
     .flow-label {
-      font-size: 10px;
+      font-size: 9.5px;
       text-transform: uppercase;
       font-weight: 700;
       letter-spacing: 0.3px;
@@ -575,16 +636,16 @@
 
     .xpath-pill {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 11px;
+      font-size: 10.5px;
       color: #38bdf8;
       background: rgba(6, 182, 212, 0.1);
       border: 1px solid rgba(6, 182, 212, 0.2);
-      padding: 3px 6px;
+      padding: 3px 5px;
       border-radius: var(--radius-sm);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 6px;
+      gap: 5px;
       word-break: break-all;
     }
 
@@ -597,7 +658,7 @@
     .copy-btn {
       background: transparent;
       border: none;
-      padding: 2px 4px;
+      padding: 1px 3px;
       cursor: pointer;
       color: var(--text-faint);
       border-radius: 2px;
@@ -613,18 +674,18 @@
     .structured-section {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
     }
 
     .structured-header {
-      font-size: 11.5px;
+      font-size: 11px;
       font-weight: 700;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.3px;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
     }
 
     .data-table-wrapper {
@@ -632,13 +693,13 @@
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
       overflow-x: auto;
-      max-height: 220px;
+      max-height: 200px;
     }
 
     .data-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 11.5px;
+      font-size: 11px;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
 
@@ -647,7 +708,7 @@
       color: #94a3b8;
       font-weight: 600;
       text-align: left;
-      padding: 6px 10px;
+      padding: 5px 8px;
       border-bottom: 1px solid var(--border-strong);
       position: sticky;
       top: 0;
@@ -655,7 +716,7 @@
     }
 
     .data-table td {
-      padding: 5px 10px;
+      padding: 4px 8px;
       border-bottom: 1px solid #162035;
       color: #e2e8f0;
       white-space: nowrap;
@@ -676,31 +737,121 @@
 
     .raw-code-actions {
       position: absolute;
-      top: 8px;
-      right: 8px;
+      top: 6px;
+      right: 6px;
       z-index: 2;
     }
 
     pre.code-view {
       background: var(--bg-code);
       border: 1px solid var(--border-subtle);
-      padding: 12px;
+      padding: 10px;
       border-radius: var(--radius-md);
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 11.5px;
+      font-size: 11px;
       line-height: 1.5;
       color: #e2e8f0;
-      max-height: 240px;
+      max-height: 220px;
       overflow: auto;
       white-space: pre-wrap;
       word-break: break-all;
     }
 
-    /* Syntax colors for XML */
     .xml-tag { color: #f43f5e; font-weight: 600; }
     .xml-attr-name { color: #fbbf24; }
     .xml-attr-val { color: #34d399; }
     .xml-text { color: #f8fafc; }
+
+    /* ======================================================== */
+    /* 2. Interactive Full Table Matrix View                    */
+    /* ======================================================== */
+    #tableViewContainer {
+      display: none;
+      flex: 1;
+      overflow: hidden;
+      flex-direction: column;
+      background: var(--bg-base);
+    }
+
+    .table-view-header {
+      padding: 8px 14px;
+      background: #111827;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .table-view-tabs {
+      display: flex;
+      gap: 6px;
+    }
+
+    .table-subtab {
+      background: var(--bg-code);
+      border: 1px solid var(--border-strong);
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    .table-subtab.active {
+      background: #2563eb;
+      border-color: #2563eb;
+      color: white;
+      font-weight: 600;
+    }
+
+    .table-view-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .table-scroll-wrap {
+      flex: 1;
+      overflow: auto;
+    }
+
+    .matrix-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      min-width: 900px;
+    }
+
+    .matrix-table th {
+      background: #131c2e;
+      color: #94a3b8;
+      font-weight: 600;
+      text-align: left;
+      padding: 7px 10px;
+      border-bottom: 1px solid var(--border-strong);
+      border-right: 1px solid #1b263b;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      white-space: nowrap;
+    }
+
+    .matrix-table td {
+      padding: 6px 10px;
+      border-bottom: 1px solid #162035;
+      border-right: 1px solid #141c2c;
+      color: #e2e8f0;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+
+    .matrix-table tbody tr:hover td {
+      background: rgba(37, 99, 235, 0.08);
+    }
 
     /* Toast Notification */
     #toast {
@@ -742,15 +893,40 @@
           <span class="live-dot" title="Active Real-time Interceptor"></span>
         </div>
       </div>
+
       <div class="header-actions">
-        <button id="btnExport" class="btn-primary" title="Export full chained API sequence as JSON">
+        <!-- View Mode Switch: Cards vs Full Table -->
+        <button id="btnToggleView" class="btn-secondary" title="Switch between Card View and Full Table Matrix">
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
           </svg>
-          Export JSON
+          <span id="viewToggleLabel">Table View</span>
         </button>
+
+        <!-- Export Dropdown -->
+        <div class="dropdown-box" id="exportDropdownContainer">
+          <button id="btnExportMenu" class="btn-primary" title="Export captured data">
+            <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Export ▾
+          </button>
+          <div class="dropdown-menu" id="exportMenu">
+            <div class="dropdown-item" id="btnExportCsvDeps">
+              📊 Export CSV: Dependencies Matrix
+            </div>
+            <div class="dropdown-item" id="btnExportCsvApis">
+              📋 Export CSV: APIs Summary Table
+            </div>
+            <div class="dropdown-divider"></div>
+            <div class="dropdown-item" id="btnExportJson">
+              📥 Export Full JSON (Raw & Parsed)
+            </div>
+          </div>
+        </div>
+
         <button id="btnClear" class="btn-secondary" title="Clear captured history">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
           </svg>
           Clear
@@ -758,12 +934,13 @@
       </div>
     </div>
 
+    <!-- Live Search & Category Chips -->
     <div class="controls-row">
       <div class="search-box">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
-        <input type="text" id="searchInput" class="search-input" placeholder="Search by URL endpoint or method..." />
+        <input type="text" id="searchInput" class="search-input" placeholder="Search endpoint, field name, XPath, or value..." />
       </div>
       <div class="filter-chips">
         <div class="chip active" data-filter="all">All (<span id="countAll">0</span>)</div>
@@ -773,8 +950,35 @@
     </div>
   </header>
 
-  <!-- Request List Container -->
-  <div id="apiList"></div>
+  <div id="mainViewArea">
+    <!-- View 1: Card List View -->
+    <div id="apiList"></div>
+
+    <!-- View 2: Full Table Matrix View -->
+    <div id="tableViewContainer">
+      <div class="table-view-header">
+        <div class="table-view-tabs">
+          <div class="table-subtab active" data-table-tab="matrix">
+            ⚡ Dependencies Matrix (<span id="tableDepsCount">0</span>)
+          </div>
+          <div class="table-subtab" data-table-tab="summary">
+            🌐 APIs Summary (<span id="tableApisCount">0</span>)
+          </div>
+        </div>
+        <div class="table-view-actions">
+          <button id="btnDownloadActiveTableCsv" class="btn-primary" style="font-size: 11px; padding: 4px 8px;">
+            📥 Download Table CSV
+          </button>
+        </div>
+      </div>
+
+      <div class="table-scroll-wrap">
+        <table class="matrix-table" id="matrixTable">
+          <!-- Dynamically populated via popup.js -->
+        </table>
+      </div>
+    </div>
+  </div>
 
   <!-- Toast Element -->
   <div id="toast">Copied to clipboard</div>

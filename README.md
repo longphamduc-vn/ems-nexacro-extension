@@ -23,11 +23,15 @@
    - Automatically detects data lineage across chronological API chains.
    - Traces if values inside a subsequent API request payload originated from prior API responses.
 
-5. **Modern Inspector UI**:
-   - Sleek ~500px x 550px popup with dark mode, badges, and real-time filtering.
-   - Collapsible tabs for formatted Payload, Response, and a dedicated **Dependencies** view.
-   - **📥 Export JSON**: Exports the full execution chain with computed dependencies in one click.
-   - **🗑️ Clear Logs**: One-click cleanup of captured requests in `chrome.storage.local`.
+5. **Modern Inspector UI & Tabular Views**:
+   - Sleek ~680px x 600px DevTools-grade dark theme with real-time filtering.
+   - **Card View**: Collapsible cards with structured Parameter/Dataset tables and visual Lineage Flow cards.
+   - **Table Matrix View**: Dedicated spreadsheet-like matrix layout for direct data lineage analysis.
+
+6. **Multi-Format Table & JSON Exporters**:
+   - **📊 Export CSV (Dependencies Matrix)**: Exports tabular lineage matrix directly compatible with Excel (UTF-8 BOM).
+   - **📋 Export CSV (APIs Summary)**: Exports full API traffic sequence log as a CSV spreadsheet.
+   - **📥 Export JSON**: Exports the complete execution chain with raw payloads and parsed structures.
 
 ---
 
@@ -40,8 +44,8 @@ ems-nexacro-extension/
 ├── content.js            # Bridge script injecting inject.js & handling storage
 ├── background.js         # Service worker managing extension lifecycle & badge count
 ├── dependencyEngine.js   # Nexacro XML parser & API dependency mapping engine
-├── popup.html            # Extension popup user interface
-├── popup.js              # Popup controller, UI renderer & JSON exporter
+├── popup.html            # Extension popup user interface (Cards & Table Matrix)
+├── popup.js              # Popup controller, UI renderer & CSV/JSON exporters
 └── README.md             # Documentation
 ```
 
@@ -59,7 +63,7 @@ ems-nexacro-extension/
    ```
 3. Enable **Developer mode** in the top-right corner.
 4. Click **Load unpacked** and select the `ems-nexacro-extension` directory.
-5. Open your EMS / Nexacro web application, execute actions, and open the extension popup to analyze API traffic and dependencies.
+5. Open your EMS / Nexacro web application, execute actions, and open the extension popup to analyze API traffic and export dependencies as CSV or JSON.
 
 ---
 
