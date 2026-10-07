@@ -1,25 +1,28 @@
 /**
- * popup.js - Extension UI Controller & Data Flow Coordinator
- * Connects storage logs, runs real-time dependency analysis, updates UI, and triggers downloads.
+ * popup.js - Modernized Extension UI Controller
+ * Manages DevTools-grade inspection UI, real-time filtering, structured XML views, and dependency lineage.
  */
 (function () {
   'use strict';
 
   const STORAGE_KEY = 'ems_captured_apis';
 
-  // DOM Elements
+  // DOM references
   const apiListContainer = document.getElementById('apiList');
-  const trafficCountEl = document.getElementById('trafficCount');
   const btnExport = document.getElementById('btnExport');
   const btnClear = document.getElementById('btnClear');
   const searchInput = document.getElementById('searchInput');
+  const countAllEl = document.getElementById('countAll');
+  const countDepsEl = document.getElementById('countDeps');
+  const countErrorsEl = document.getElementById('countErrors');
+  const toastEl = document.getElementById('toast');
+  const filterChips = document.querySelectorAll('.chip');
 
   let currentLogs = [];
-  let computedLogsWithDependencies = [];
+  let computedLogs = [];
+  let activeFilter = 'all'; // 'all', 'deps', 'errors'
+  let toastTimer = null;
 
-  /**
-   * Initialize popup view.
-   */
   document.addEventListener('DOMContentLoaded', () => {
     loadLogs();
     setupEventListeners();
@@ -28,218 +31,478 @@
   function setupEventListeners() {
     btnExport.addEventListener('click', handleExportJSON);
     btnClear.addEventListener('click', handleClearLogs);
-    searchInput.addEventListener('input', handleFilterChange);
+    searchInput.addEventListener('input', renderList);
+
+    filterChips.forEach((chip) => {
+      chip.addEventListener('click', () => {
+        filterChips.forEach((c) => c.classList.remove('active'));
+        chip.classList.add('active');
+        activeFilter = chip.getAttribute('data-filter') || 'all';
+        renderList();
+      });
+    });
   }
 
   /**
-   * Fetches data from chrome.storage.local and recalculates dependencies.
+   * Retrieves logs and computes dependencies & parsed structures.
    */
   function loadLogs() {
     chrome.storage.local.get([STORAGE_KEY], (res) => {
       currentLogs = res[STORAGE_KEY] || [];
       if (!Array.isArray(currentLogs)) currentLogs = [];
 
-      computeAllDependencies();
+      computeDataAndLineage();
+      updateHeaderCounts();
       renderList();
     });
   }
 
   /**
-   * Runs dependencyEngine.js sequentially across all intercepted APIs.
+   * Pre-processes logs with dependencyEngine.js
    */
-  function computeAllDependencies() {
-    computedLogsWithDependencies = [];
+  function computeDataAndLineage() {
+    computedLogs = [];
 
     for (let i = 0; i < currentLogs.length; i++) {
-      const currentApi = currentLogs[i];
-      // Past APIs strictly preceding the current API in time
+      const current = currentLogs[i];
       const pastApis = currentLogs.slice(0, i);
 
       let dependencies = [];
-      if (
-        window.NexacroDependencyEngine &&
-        currentApi.requestBody &&
-        pastApis.length > 0
-      ) {
-        dependencies = window.NexacroDependencyEngine.findDependencies(
-          currentApi.requestBody,
-          pastApis
-        );
+      let parsedRequest = null;
+      let parsedResponse = null;
+
+      if (window.NexacroDependencyEngine) {
+        if (current.requestBody) {
+          parsedRequest = window.NexacroDependencyEngine.parseNexacroXML(current.requestBody);
+          if (pastApis.length > 0) {
+            dependencies = window.NexacroDependencyEngine.findDependencies(parsedRequest, pastApis);
+          }
+        }
+        if (current.responseBody) {
+          parsedResponse = window.NexacroDependencyEngine.parseNexacroXML(current.responseBody);
+        }
       }
 
-      computedLogsWithDependencies.push({
-        ...currentApi,
+      computedLogs.push({
+        ...current,
+        index: i + 1,
+        parsedRequest: parsedRequest,
+        parsedResponse: parsedResponse,
         dependencies: dependencies
       });
     }
   }
 
+  function updateHeaderCounts() {
+    const total = computedLogs.length;
+    const depsCount = computedLogs.filter((item) => item.dependencies && item.dependencies.length > 0).length;
+    const errorsCount = computedLogs.filter((item) => item.status >= 400 || item.status === 0).length;
+
+    countAllEl.textContent = String(total);
+    countDepsEl.textContent = String(depsCount);
+    countErrorsEl.textContent = String(errorsCount);
+  }
+
   /**
-   * Renders the scrollable API list with cards and accordion tabs.
+   * Renders the filtered and searched API items.
    */
   function renderList() {
-    const filterText = (searchInput.value || '').trim().toLowerCase();
+    const query = (searchInput.value || '').trim().toLowerCase();
     apiListContainer.innerHTML = '';
 
-    const filtered = computedLogsWithDependencies.filter((item) => {
-      if (!filterText) return true;
-      return (
-        item.url.toLowerCase().includes(filterText) ||
-        item.method.toLowerCase().includes(filterText)
-      );
-    });
+    const filtered = computedLogs.filter((item) => {
+      // 1. Chip filter check
+      if (activeFilter === 'deps' && (!item.dependencies || item.dependencies.length === 0)) {
+        return false;
+      }
+      if (activeFilter === 'errors' && !(item.status >= 400 || item.status === 0)) {
+        return false;
+      }
 
-    trafficCountEl.textContent = String(filtered.length);
+      // 2. Search query check
+      if (!query) return true;
+      const inUrl = item.url.toLowerCase().includes(query);
+      const inMethod = item.method.toLowerCase().includes(query);
+      const inStatus = String(item.status).includes(query);
+      return inUrl || inMethod || inStatus;
+    });
 
     if (filtered.length === 0) {
       apiListContainer.innerHTML = `
         <div class="empty-state">
-          <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
           </svg>
-          <p>No Nexacro XML requests captured yet.</p>
-          <span style="font-size: 11px;">Interact with your EMS application to see traffic.</span>
+          <div class="empty-title">No Nexacro Traffic Found</div>
+          <div class="empty-desc">Make HTTP requests on your EMS Nexacro application to monitor parameters, datasets, and API data dependencies.</div>
         </div>
       `;
       return;
     }
 
-    filtered.forEach((api, index) => {
-      const card = createApiCard(api, index);
+    filtered.forEach((api) => {
+      const card = createApiCard(api);
       apiListContainer.appendChild(card);
     });
   }
 
   /**
-   * Creates an interactive API entry element.
+   * Builds an interactive API entry card.
    */
-  function createApiCard(api, index) {
+  function createApiCard(api) {
     const card = document.createElement('div');
     card.className = 'api-card';
 
     const isPost = api.method === 'POST';
-    const methodBadgeClass = isPost ? 'badge-post' : 'badge-get';
-    const isStatusOk = api.status >= 200 && api.status < 300;
-    const statusClass = isStatusOk ? 'status-2xx' : 'status-err';
+    const methodClass = isPost ? 'method-post' : 'method-get';
+    const isSuccess = api.status >= 200 && api.status < 300;
+    const statusClass = isSuccess ? 'status-2xx' : 'status-err';
     const depCount = api.dependencies ? api.dependencies.length : 0;
 
-    const formattedTime = new Date(api.timestamp).toLocaleTimeString();
+    // Parse URL for clean display
+    let urlPath = api.url;
+    let urlHost = '';
+    try {
+      const parsedUrl = new URL(api.url);
+      urlPath = parsedUrl.pathname + parsedUrl.search;
+      urlHost = parsedUrl.host;
+    } catch (e) {
+      // Relative or non-standard URL
+    }
+
+    const durationText = api.durationMs ? `${api.durationMs}ms` : '';
 
     card.innerHTML = `
-      <div class="api-summary" data-index="${index}">
-        <div class="api-meta-left">
-          <span class="badge ${methodBadgeClass}">${api.method}</span>
-          <span class="status-badge ${statusClass}">${api.status || '---'}</span>
-          <span class="url-label" title="${escapeHtml(api.url)}">${escapeHtml(api.url)}</span>
+      <div class="card-header">
+        <div class="card-meta-left">
+          <span class="method-badge ${methodClass}">${escapeHtml(api.method)}</span>
+          <span class="status-badge ${statusClass}">${api.status || 'ERR'}</span>
+          <div class="url-display" title="${escapeHtml(api.url)}">
+            <span class="url-path">${escapeHtml(urlPath)}</span>
+            ${urlHost ? `<span class="url-host">${escapeHtml(urlHost)}</span>` : ''}
+          </div>
         </div>
-        <div class="api-meta-right">
+        <div class="card-meta-right">
           ${
             depCount > 0
-              ? `<span class="dep-count-badge" title="${depCount} data lineage dependencies detected">⚡ ${depCount}</span>`
+              ? `<div class="dep-pill" title="${depCount} variables linked from prior APIs">
+                   <span>⚡</span> ${depCount} Linked
+                 </div>`
               : ''
           }
-          <span class="time-label">${formattedTime}</span>
+          ${durationText ? `<span class="duration-label">${durationText}</span>` : ''}
+          <svg class="chevron-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
         </div>
       </div>
-      <div class="api-details">
-        <div class="tabs-header">
-          <button class="tab-btn active" data-tab="payload">Payload</button>
-          <button class="tab-btn" data-tab="response">Response</button>
-          <button class="tab-btn" data-tab="deps">Dependencies (${depCount})</button>
+
+      <div class="card-drawer">
+        <div class="drawer-tabs">
+          <div class="nav-tabs">
+            <button class="tab-btn tab-dep ${depCount > 0 ? 'active' : ''}" data-pane="deps">
+              ⚡ Dependencies (${depCount})
+            </button>
+            <button class="tab-btn ${depCount === 0 ? 'active' : ''}" data-pane="payload">
+              Payload (Request)
+            </button>
+            <button class="tab-btn" data-pane="response">
+              Response
+            </button>
+          </div>
+          <div class="view-mode-toggle" title="Switch between structured tables and raw formatted XML">
+            <div class="toggle-opt active" data-mode="structured">Structured</div>
+            <div class="toggle-opt" data-mode="raw">Raw XML</div>
+          </div>
         </div>
-        <div class="tab-content active" data-content="payload">
-          <pre class="code-view">${escapeHtml(formatXmlOrRaw(api.requestBody))}</pre>
+
+        <!-- Dependencies Tab -->
+        <div class="tab-pane ${depCount > 0 ? 'active' : ''}" data-pane-content="deps">
+          ${renderDependenciesPane(api.dependencies)}
         </div>
-        <div class="tab-content" data-content="response">
-          <pre class="code-view">${escapeHtml(formatXmlOrRaw(api.responseBody))}</pre>
+
+        <!-- Payload Tab -->
+        <div class="tab-pane ${depCount === 0 ? 'active' : ''}" data-pane-content="payload">
+          <div class="pane-view-structured">
+            ${renderStructuredXml(api.parsedRequest, 'Request')}
+          </div>
+          <div class="pane-view-raw" style="display: none;">
+            <div class="raw-code-container">
+              <div class="raw-code-actions">
+                <button class="btn-secondary btn-copy-raw" data-copy="${escapeAttr(api.requestBody)}">
+                  Copy XML
+                </button>
+              </div>
+              <pre class="code-view">${formatAndHighlightXml(api.requestBody)}</pre>
+            </div>
+          </div>
         </div>
-        <div class="tab-content" data-content="deps">
-          ${renderDependenciesTabContent(api.dependencies)}
+
+        <!-- Response Tab -->
+        <div class="tab-pane" data-pane-content="response">
+          <div class="pane-view-structured">
+            ${renderStructuredXml(api.parsedResponse, 'Response')}
+          </div>
+          <div class="pane-view-raw" style="display: none;">
+            <div class="raw-code-container">
+              <div class="raw-code-actions">
+                <button class="btn-secondary btn-copy-raw" data-copy="${escapeAttr(api.responseBody)}">
+                  Copy XML
+                </button>
+              </div>
+              <pre class="code-view">${formatAndHighlightXml(api.responseBody)}</pre>
+            </div>
+          </div>
         </div>
       </div>
     `;
 
     // Accordion toggle
-    const summary = card.querySelector('.api-summary');
-    summary.addEventListener('click', () => {
+    const header = card.querySelector('.card-header');
+    header.addEventListener('click', () => {
       card.classList.toggle('open');
     });
 
     // Sub-tabs switching
-    const tabButtons = card.querySelectorAll('.tab-btn');
-    const tabContents = card.querySelectorAll('.tab-content');
+    const tabBtns = card.querySelectorAll('.tab-btn');
+    const tabPanes = card.querySelectorAll('.tab-pane');
 
-    tabButtons.forEach((btn) => {
+    tabBtns.forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const targetTab = btn.getAttribute('data-tab');
-
-        tabButtons.forEach((b) => b.classList.remove('active'));
-        tabContents.forEach((c) => c.classList.remove('active'));
+        const target = btn.getAttribute('data-pane');
+        tabBtns.forEach((b) => b.classList.remove('active'));
+        tabPanes.forEach((p) => p.classList.remove('active'));
 
         btn.classList.add('active');
-        card.querySelector(`.tab-content[data-content="${targetTab}"]`).classList.add('active');
+        const targetPane = card.querySelector(`.tab-pane[data-pane-content="${target}"]`);
+        if (targetPane) targetPane.classList.add('active');
       });
+    });
+
+    // Structured vs Raw view mode toggle
+    const toggleOpts = card.querySelectorAll('.toggle-opt');
+    toggleOpts.forEach((opt) => {
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleOpts.forEach((o) => o.classList.remove('active'));
+        opt.classList.add('active');
+        const mode = opt.getAttribute('data-mode');
+
+        const activePane = card.querySelector('.tab-pane.active');
+        if (activePane) {
+          const structView = activePane.querySelector('.pane-view-structured');
+          const rawView = activePane.querySelector('.pane-view-raw');
+          if (structView && rawView) {
+            if (mode === 'structured') {
+              structView.style.display = 'block';
+              rawView.style.display = 'none';
+            } else {
+              structView.style.display = 'none';
+              rawView.style.display = 'block';
+            }
+          }
+        }
+      });
+    });
+
+    // Copy XML buttons
+    const copyRawBtns = card.querySelectorAll('.btn-copy-raw');
+    copyRawBtns.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const text = btn.getAttribute('data-copy');
+        copyToClipboard(text);
+      });
+    });
+
+    // Delegated copy buttons inside card (XPath, values)
+    card.addEventListener('click', (e) => {
+      const copyTarget = e.target.closest('[data-copy-text]');
+      if (copyTarget) {
+        e.stopPropagation();
+        const text = copyTarget.getAttribute('data-copy-text');
+        copyToClipboard(text);
+      }
     });
 
     return card;
   }
 
   /**
-   * Renders the dependencies table inside the accordion.
+   * Renders the dependencies flow view with visual cards.
    */
-  function renderDependenciesTabContent(dependencies) {
+  function renderDependenciesPane(dependencies) {
     if (!dependencies || dependencies.length === 0) {
-      return '<div style="color: #94a3b8; font-size: 11px; padding: 6px;">No values linked to previous API responses.</div>';
+      return `
+        <div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px;">
+          No incoming data dependencies detected. All values appear to be user inputs or constants.
+        </div>
+      `;
     }
 
-    let rowsHtml = '';
+    let itemsHtml = '';
     dependencies.forEach((d) => {
-      const sourceUrlShort = d.sourceApiUrl.split('/').pop() || d.sourceApiUrl;
-      rowsHtml += `
-        <tr>
-          <td>
-            <div class="xpath-tag" title="${escapeHtml(d.targetLocation)}">${escapeHtml(d.targetLocation)}</div>
-            <div style="margin-top: 2px;"><span class="val-highlight">${escapeHtml(d.targetValue)}</span></div>
-          </td>
-          <td>
-            <div class="source-api-tag" title="${escapeHtml(d.sourceApiUrl)}">⬅️ ${escapeHtml(sourceUrlShort)}</div>
-            <div class="xpath-tag" style="color: #a78bfa;" title="${escapeHtml(d.sourceXPath)}">${escapeHtml(d.sourceXPath)}</div>
-          </td>
-        </tr>
+      let sourceUrlShort = d.sourceApiUrl;
+      try {
+        const u = new URL(d.sourceApiUrl);
+        sourceUrlShort = u.pathname;
+      } catch (e) {}
+
+      itemsHtml += `
+        <div class="dep-flow-item">
+          <div class="dep-row-top">
+            <div class="dep-target-field">
+              <span>Target: <strong>${escapeHtml(d.targetKey)}</strong></span>
+            </div>
+            <div class="dep-val-pill" title="Click to copy value" data-copy-text="${escapeAttr(d.targetValue)}" style="cursor: pointer;">
+              "${escapeHtml(d.targetValue)}" 📋
+            </div>
+          </div>
+
+          <div class="dep-lineage-flow">
+            <div class="flow-col">
+              <span class="flow-label">Target XPath (This Request)</span>
+              <div class="xpath-pill">
+                <span>${escapeHtml(d.targetLocation)}</span>
+                <button class="copy-btn" title="Copy XPath" data-copy-text="${escapeAttr(d.targetLocation)}">📋</button>
+              </div>
+            </div>
+
+            <div class="flow-arrow">➔</div>
+
+            <div class="flow-col">
+              <span class="flow-label">Source Origin: ${escapeHtml(d.sourceMethod)} ${escapeHtml(sourceUrlShort)}</span>
+              <div class="xpath-pill source">
+                <span>${escapeHtml(d.sourceXPath)}</span>
+                <button class="copy-btn" title="Copy XPath" data-copy-text="${escapeAttr(d.sourceXPath)}">📋</button>
+              </div>
+            </div>
+          </div>
+        </div>
       `;
     });
 
-    return `
-      <table class="dep-table">
-        <thead>
-          <tr>
-            <th>Target Field (Request)</th>
-            <th>Source Origin (Prior Response)</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rowsHtml}
-        </tbody>
-      </table>
-    `;
+    return `<div class="dep-flow-container">${itemsHtml}</div>`;
   }
 
   /**
-   * Formats XML string with indentation for clear reading.
+   * Renders structured Parameters & Datasets tables.
    */
-  function formatXmlOrRaw(xml) {
-    if (!xml || typeof xml !== 'string') return '(empty)';
+  function renderStructuredXml(parsedObj, label) {
+    if (!parsedObj || !parsedObj.isValidNexacro) {
+      return `
+        <div style="padding: 12px; color: var(--text-muted); font-size: 12px;">
+          No Nexacro Parameters or Datasets detected in this ${label}. Switch to "Raw XML" view to see full payload.
+        </div>
+      `;
+    }
+
+    let html = '';
+
+    // 1. Parameters Table
+    const paramKeys = Object.keys(parsedObj.parameters || {});
+    if (paramKeys.length > 0) {
+      let rows = '';
+      paramKeys.forEach((key) => {
+        const p = parsedObj.parameters[key];
+        rows += `
+          <tr>
+            <td style="font-weight: 600; color: #60a5fa;">${escapeHtml(p.id)}</td>
+            <td style="color: #34d399;">${escapeHtml(p.value)}</td>
+            <td style="color: var(--text-faint);">${escapeHtml(p.xpath)}</td>
+            <td style="text-align: right;">
+              <button class="copy-btn" title="Copy XPath" data-copy-text="${escapeAttr(p.xpath)}">📋</button>
+            </td>
+          </tr>
+        `;
+      });
+
+      html += `
+        <div class="structured-section">
+          <div class="structured-header">
+            <span>Parameters (${paramKeys.length})</span>
+          </div>
+          <div class="data-table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Parameter ID</th>
+                  <th>Value</th>
+                  <th>XPath</th>
+                  <th style="width: 30px;"></th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    // 2. Datasets Tables
+    const datasetKeys = Object.keys(parsedObj.datasets || {});
+    if (datasetKeys.length > 0) {
+      datasetKeys.forEach((dsId) => {
+        const ds = parsedObj.datasets[dsId];
+        const cols = ds.columns || [];
+        const rows = ds.rows || [];
+
+        let ths = `<th>#</th>`;
+        cols.forEach((col) => {
+          ths += `<th>${escapeHtml(col.id)}</th>`;
+        });
+
+        let trs = '';
+        rows.forEach((row, rIdx) => {
+          let tds = `<td style="color: var(--text-faint);">${rIdx + 1}</td>`;
+          cols.forEach((col) => {
+            const cellVal = row[col.id] || '';
+            tds += `<td>${escapeHtml(cellVal)}</td>`;
+          });
+          trs += `<tr>${tds}</tr>`;
+        });
+
+        if (rows.length === 0) {
+          trs = `<tr><td colspan="${cols.length + 1}" style="text-align: center; color: var(--text-faint);">0 rows</td></tr>`;
+        }
+
+        html += `
+          <div class="structured-section" style="margin-top: 10px;">
+            <div class="structured-header">
+              <span>Dataset: <strong style="color: #c084fc;">${escapeHtml(dsId)}</strong> (${rows.length} rows, ${cols.length} cols)</span>
+            </div>
+            <div class="data-table-wrapper">
+              <table class="data-table">
+                <thead><tr>${ths}</tr></thead>
+                <tbody>${trs}</tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    return html;
+  }
+
+  /**
+   * Indents and syntax-highlights XML strings for comfortable reading.
+   */
+  function formatAndHighlightXml(xml) {
+    if (!xml || typeof xml !== 'string') return '<span style="color: var(--text-faint);">(empty)</span>';
     const trimmed = xml.trim();
-    if (!trimmed.startsWith('<')) return trimmed;
+    if (!trimmed.startsWith('<')) return escapeHtml(trimmed);
 
     try {
+      // 1. Indent XML
       let formatted = '';
       const reg = /(>)(<)(\/*)/g;
       const cleanXml = trimmed.replace(reg, '$1\r\n$2$3');
       let pad = 0;
 
-      cleanXml.split('\r\n').forEach((node) => {
+      const lines = cleanXml.split('\r\n');
+      lines.forEach((node) => {
         let indent = 0;
         if (node.match(/.+<\/\w[^>]*>$/)) {
           indent = 0;
@@ -255,49 +518,74 @@
         for (let i = 0; i < pad; i++) {
           padding += '  ';
         }
-        formatted += padding + node + '\r\n';
+        formatted += padding + node + '\n';
         pad += indent;
       });
 
-      return formatted.trim();
+      // 2. Syntax Highlight with safe HTML escaping
+      const escaped = escapeHtml(formatted.trim());
+      // Color tags, attributes, and values
+      const highlighted = escaped
+        .replace(/(&lt;\/?)([\w:-]+)/g, '$1<span class="xml-tag">$2</span>')
+        .replace(/([\w:-]+)(=)(&quot;.*?&quot;)/g, '<span class="xml-attr-name">$1</span>$2<span class="xml-attr-val">$3</span>')
+        .replace(/(&gt;)([^&<\n]+)(&lt;)/g, '$1<span class="xml-text">$2</span>$3');
+
+      return highlighted;
     } catch (e) {
-      return trimmed;
+      return escapeHtml(trimmed);
     }
   }
 
   /**
-   * Packages captured trace and triggers a JSON download.
+   * Copy string to clipboard with interactive toast notification.
+   */
+  function copyToClipboard(text) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Copied to clipboard!');
+    }).catch(() => {
+      showToast('Failed to copy');
+    });
+  }
+
+  function showToast(msg) {
+    if (toastTimer) clearTimeout(toastTimer);
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    toastTimer = setTimeout(() => {
+      toastEl.classList.remove('show');
+    }, 1800);
+  }
+
+  /**
+   * Export all captured records into a structured JSON file.
    */
   function handleExportJSON() {
-    if (computedLogsWithDependencies.length === 0) {
-      alert('No API records available to export.');
+    if (computedLogs.length === 0) {
+      alert('No API records captured yet.');
       return;
     }
 
     const exportPayload = {
       exportedAt: new Date().toISOString(),
-      generator: 'EMS Nexacro XML Extension',
-      totalRequests: computedLogsWithDependencies.length,
-      chain: computedLogsWithDependencies.map((entry) => ({
-        id: entry.id,
-        timestamp: entry.timestamp,
-        durationMs: entry.durationMs,
-        clientType: entry.clientType,
-        method: entry.method,
-        url: entry.url,
-        status: entry.status,
-        statusText: entry.statusText,
-        requestHeaders: entry.requestHeaders,
-        requestBodyRaw: entry.requestBody,
-        requestParsed: window.NexacroDependencyEngine
-          ? window.NexacroDependencyEngine.parseNexacroXML(entry.requestBody)
-          : null,
-        responseHeaders: entry.responseHeaders,
-        responseBodyRaw: entry.responseBody,
-        responseParsed: window.NexacroDependencyEngine
-          ? window.NexacroDependencyEngine.parseNexacroXML(entry.responseBody)
-          : null,
-        dependencies: entry.dependencies || []
+      generator: 'EMS Nexacro XML Interceptor & Dependency Engine',
+      totalRequests: computedLogs.length,
+      chain: computedLogs.map((item) => ({
+        id: item.id,
+        timestamp: item.timestamp,
+        durationMs: item.durationMs,
+        clientType: item.clientType,
+        method: item.method,
+        url: item.url,
+        status: item.status,
+        statusText: item.statusText,
+        requestHeaders: item.requestHeaders,
+        requestBodyRaw: item.requestBody,
+        requestParsed: item.parsedRequest,
+        responseHeaders: item.responseHeaders,
+        responseBodyRaw: item.responseBody,
+        responseParsed: item.parsedResponse,
+        dependencies: item.dependencies || []
       }))
     };
 
@@ -313,20 +601,18 @@
   }
 
   /**
-   * Clears storage logs and resets UI.
+   * Clear storage logs.
    */
   function handleClearLogs() {
     if (!confirm('Clear all captured Nexacro API logs?')) return;
     chrome.storage.local.set({ [STORAGE_KEY]: [] }, () => {
       currentLogs = [];
-      computedLogsWithDependencies = [];
+      computedLogs = [];
       chrome.action.setBadgeText({ text: '' });
+      updateHeaderCounts();
       renderList();
+      showToast('Logs cleared');
     });
-  }
-
-  function handleFilterChange() {
-    renderList();
   }
 
   function escapeHtml(str) {
@@ -337,5 +623,15 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  function escapeAttr(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 })();
