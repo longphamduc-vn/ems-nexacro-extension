@@ -23,14 +23,11 @@
    - Automatically detects data lineage across chronological API chains.
    - Traces if values inside a subsequent API request payload originated from prior API responses.
 
-5. **Modern Inspector UI & Full Table Matrix**:
-   - Sleek ~680px x 600px DevTools-grade dark theme with real-time filtering.
-   - **Card View**: Collapsible cards with structured Parameter/Dataset tables and visual Lineage Flow cards.
-   - **Table Matrix View**: Dedicated spreadsheet-like matrix layout with 4 sub-views:
-     - ⚡ **Dependencies Matrix Table**
-     - 🌐 **APIs Summary Table**
-     - 📤 **Payloads Table (Requests)**
-     - 📥 **Responses Table**
+5. **High-Performance UI for Large Traffic Volumes**:
+   - **Lazy Drawer Rendering**: Card details (formatted XML, dataset tables, syntax highlighting) are constructed strictly on-demand upon clicking to expand, reducing initial DOM footprint by >90%.
+   - **Virtual Batching & Infinite Scroll**: Cards load progressively in batches of 25 items for smooth scrolling.
+   - **Full Paged Table Matrix**: Supports 25 / 50 / 100 rows per page with intuitive page navigation for silky smooth rendering of thousands of entries.
+   - **Debounced Search**: Real-time filtering with 180ms debouncing.
 
 6. **Comprehensive Multi-Format CSV & JSON Exporters**:
    - **📊 Export CSV: Dependencies Matrix**: Data lineage matrix compatible with Excel (UTF-8 BOM).
@@ -48,11 +45,11 @@
 ems-nexacro-extension/
 ├── manifest.json         # Manifest V3 configuration & permissions
 ├── inject.js             # Main-world script hooking Fetch & XHR
-├── content.js            # Bridge script injecting inject.js & handling storage
+├── content.js            # Bridge script injecting inject.js & handling storage (200-cap)
 ├── background.js         # Service worker managing extension lifecycle & badge count
 ├── dependencyEngine.js   # Nexacro XML parser & API dependency mapping engine
-├── popup.html            # Extension popup user interface (Cards & Table Matrix)
-├── popup.js              # Popup controller, UI renderer & CSV/JSON exporters
+├── popup.html            # Extension popup user interface (Cards & Paged Table Matrix)
+├── popup.js              # High-performance popup controller, lazy renderer & CSV/JSON exporters
 └── README.md             # Documentation
 ```
 

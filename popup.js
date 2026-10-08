@@ -1,16 +1,27 @@
 /**
- * popup.js - Modernized Extension UI & Multi-Table Exporter
- * Features: DevTools Card Inspector, Comprehensive Table Matrix View for Dependencies, Payloads & Responses.
+ * popup.js - High-Performance Extension UI & Multi-Table Exporter
+ * Optimized for large API volumes with Virtual Batching, Lazy Drawer Rendering, and Paged Table Matrix.
  */
 (function () {
   'use strict';
 
   const STORAGE_KEY = 'ems_captured_apis';
+  const CARDS_BATCH_SIZE = 25;
 
   // DOM elements
   const apiListContainer = document.getElementById('apiList');
+  const cardsFooterBar = document.getElementById('cardsFooterBar');
+  const cardsCountLabel = document.getElementById('cardsCountLabel');
+  const btnLoadMoreCards = document.getElementById('btnLoadMoreCards');
+
   const tableViewContainer = document.getElementById('tableViewContainer');
   const matrixTable = document.getElementById('matrixTable');
+  const tablePaginationInfo = document.getElementById('tablePaginationInfo');
+  const pageCurrentDisplay = document.getElementById('pageCurrentDisplay');
+  const pageSizeSelect = document.getElementById('pageSizeSelect');
+  const btnPrevTablePage = document.getElementById('btnPrevTablePage');
+  const btnNextTablePage = document.getElementById('btnNextTablePage');
+
   const btnToggleView = document.getElementById('btnToggleView');
   const viewToggleLabel = document.getElementById('viewToggleLabel');
 
@@ -44,6 +55,12 @@
   let activeFilter = 'all'; // 'all', 'deps', 'errors'
   let currentViewMode = 'cards'; // 'cards' | 'table'
   let activeTableTab = 'matrix'; // 'matrix' | 'summary' | 'payloads' | 'responses'
+  
+  // Performance State
+  let cardsRenderedCount = 0;
+  let tableCurrentPage = 1;
+  let tablePageSize = 50;
+  let searchDebounceTimer = null;
   let toastTimer = null;
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -52,7 +69,7 @@
   });
 
   function setupEventListeners() {
-    // 1. Export Dropdown Handling
+    // 1. Export Menu
     btnExportMenu.addEventListener('click', (e) => {
       e.stopPropagation();
       exportDropdownContainer.classList.toggle('open');
@@ -99,43 +116,79 @@
       }
     });
 
-    // 2. View Mode Toggle (Cards vs Full Table)
+    // 2. View Mode Toggle
     btnToggleView.addEventListener('click', () => {
       if (currentViewMode === 'cards') {
         currentViewMode = 'table';
         btnToggleView.classList.add('active-view');
         viewToggleLabel.textContent = 'Cards View';
-        apiListContainer.style.display = 'none';
+        document.getElementById('cardsViewContainer').style.display = 'none';
         tableViewContainer.style.display = 'flex';
+        tableCurrentPage = 1;
         renderActiveTableView();
       } else {
         currentViewMode = 'cards';
         btnToggleView.classList.remove('active-view');
         viewToggleLabel.textContent = 'Table View';
-        apiListContainer.style.display = 'flex';
+        document.getElementById('cardsViewContainer').style.display = 'flex';
         tableViewContainer.style.display = 'none';
         renderList();
       }
     });
 
-    // 3. Table Sub-tabs
+    // 3. Cards Batch Load More & Infinite Scroll
+    btnLoadMoreCards.addEventListener('click', () => {
+      renderNextCardsBatch();
+    });
+
+    apiListContainer.addEventListener('scroll', () => {
+      if (apiListContainer.scrollTop + apiListContainer.clientHeight >= apiListContainer.scrollHeight - 60) {
+        renderNextCardsBatch();
+      }
+    });
+
+    // 4. Table Sub-tabs
     tableSubtabs.forEach((tab) => {
       tab.addEventListener('click', () => {
         tableSubtabs.forEach((t) => t.classList.remove('active'));
         tab.classList.add('active');
         activeTableTab = tab.getAttribute('data-table-tab') || 'matrix';
+        tableCurrentPage = 1;
         renderActiveTableView();
       });
     });
 
-    // 4. Clear and Filter
-    btnClear.addEventListener('click', handleClearLogs);
-    searchInput.addEventListener('input', () => {
-      if (currentViewMode === 'cards') {
-        renderList();
-      } else {
+    // 5. Table Pagination Controls
+    pageSizeSelect.addEventListener('change', (e) => {
+      tablePageSize = parseInt(e.target.value, 10);
+      tableCurrentPage = 1;
+      renderActiveTableView();
+    });
+
+    btnPrevTablePage.addEventListener('click', () => {
+      if (tableCurrentPage > 1) {
+        tableCurrentPage--;
         renderActiveTableView();
       }
+    });
+
+    btnNextTablePage.addEventListener('click', () => {
+      tableCurrentPage++;
+      renderActiveTableView();
+    });
+
+    // 6. Search & Filters with Debounce
+    btnClear.addEventListener('click', handleClearLogs);
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        tableCurrentPage = 1;
+        if (currentViewMode === 'cards') {
+          renderList();
+        } else {
+          renderActiveTableView();
+        }
+      }, 180);
     });
 
     filterChips.forEach((chip) => {
@@ -143,6 +196,7 @@
         filterChips.forEach((c) => c.classList.remove('active'));
         chip.classList.add('active');
         activeFilter = chip.getAttribute('data-filter') || 'all';
+        tableCurrentPage = 1;
         if (currentViewMode === 'cards') {
           renderList();
         } else {
@@ -283,13 +337,19 @@
     });
   }
   // ========================================================
-  // RENDER 1: Card List View
+  // RENDER 1: Card List View with Virtual Incremental Batching & Lazy Drawers
   // ========================================================
   function renderList() {
     apiListContainer.innerHTML = '';
-    const filtered = getFilteredApis();
+    cardsRenderedCount = 0;
+    renderNextCardsBatch();
+  }
 
-    if (filtered.length === 0) {
+  function renderNextCardsBatch() {
+    const filtered = getFilteredApis();
+    const total = filtered.length;
+
+    if (total === 0) {
       apiListContainer.innerHTML = `
         <div class="empty-state">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -299,13 +359,33 @@
           <div class="empty-desc">Make HTTP requests on your EMS Nexacro application to monitor parameters, datasets, and API data dependencies.</div>
         </div>
       `;
+      cardsFooterBar.style.display = 'none';
       return;
     }
 
-    filtered.forEach((api) => {
+    cardsFooterBar.style.display = 'flex';
+
+    if (cardsRenderedCount >= total) {
+      cardsCountLabel.textContent = `Showing all ${total} requests`;
+      btnLoadMoreCards.style.display = 'none';
+      return;
+    }
+
+    const nextBatch = filtered.slice(cardsRenderedCount, cardsRenderedCount + CARDS_BATCH_SIZE);
+    nextBatch.forEach((api) => {
       const card = createApiCard(api);
       apiListContainer.appendChild(card);
     });
+
+    cardsRenderedCount += nextBatch.length;
+    cardsCountLabel.textContent = `Showing ${cardsRenderedCount} of ${total} requests`;
+
+    if (cardsRenderedCount < total) {
+      btnLoadMoreCards.style.display = 'inline-block';
+      btnLoadMoreCards.textContent = `Load More (+${Math.min(CARDS_BATCH_SIZE, total - cardsRenderedCount)})`;
+    } else {
+      btnLoadMoreCards.style.display = 'none';
+    }
   }
 
   function createApiCard(api) {
@@ -328,6 +408,7 @@
 
     const durationText = api.durationMs ? `${api.durationMs}ms` : '';
 
+    // Compact Summary Header only - Drawer is lazily constructed on click!
     card.innerHTML = `
       <div class="card-header">
         <div class="card-meta-left">
@@ -353,71 +434,90 @@
           </svg>
         </div>
       </div>
+      <div class="card-drawer"></div>
+    `;
 
-      <div class="card-drawer">
-        <div class="drawer-tabs">
-          <div class="nav-tabs">
-            <button class="tab-btn tab-dep ${depCount > 0 ? 'active' : ''}" data-pane="deps">
-              ⚡ Dependencies (${depCount})
-            </button>
-            <button class="tab-btn ${depCount === 0 ? 'active' : ''}" data-pane="payload">
-              Payload (Request)
-            </button>
-            <button class="tab-btn" data-pane="response">
-              Response
-            </button>
-          </div>
-          <div class="view-mode-toggle" title="Switch between structured tables and raw formatted XML">
-            <div class="toggle-opt active" data-mode="structured">Structured</div>
-            <div class="toggle-opt" data-mode="raw">Raw XML</div>
-          </div>
+    // Lazy Accordion Expansion
+    const header = card.querySelector('.card-header');
+    header.addEventListener('click', () => {
+      const isCurrentlyOpen = card.classList.contains('open');
+      if (!isCurrentlyOpen) {
+        if (!card.dataset.drawerBuilt) {
+          buildDrawerContent(api, card);
+          card.dataset.drawerBuilt = 'true';
+        }
+        card.classList.add('open');
+      } else {
+        card.classList.remove('open');
+      }
+    });
+
+    return card;
+  }
+
+  function buildDrawerContent(api, card) {
+    const drawer = card.querySelector('.card-drawer');
+    const depCount = api.dependencies ? api.dependencies.length : 0;
+
+    drawer.innerHTML = `
+      <div class="drawer-tabs">
+        <div class="nav-tabs">
+          <button class="tab-btn tab-dep ${depCount > 0 ? 'active' : ''}" data-pane="deps">
+            ⚡ Dependencies (${depCount})
+          </button>
+          <button class="tab-btn ${depCount === 0 ? 'active' : ''}" data-pane="payload">
+            Payload (Request)
+          </button>
+          <button class="tab-btn" data-pane="response">
+            Response
+          </button>
         </div>
-
-        <div class="tab-pane ${depCount > 0 ? 'active' : ''}" data-pane-content="deps">
-          ${renderDependenciesPane(api.dependencies)}
+        <div class="view-mode-toggle" title="Switch between structured tables and raw formatted XML">
+          <div class="toggle-opt active" data-mode="structured">Structured</div>
+          <div class="toggle-opt" data-mode="raw">Raw XML</div>
         </div>
+      </div>
 
-        <div class="tab-pane ${depCount === 0 ? 'active' : ''}" data-pane-content="payload">
-          <div class="pane-view-structured">
-            ${renderStructuredXml(api.parsedRequest, 'Request', api.index)}
-          </div>
-          <div class="pane-view-raw" style="display: none;">
-            <div class="raw-code-container">
-              <div class="raw-code-actions">
-                <button class="btn-secondary btn-copy-raw" data-copy="${escapeAttr(api.requestBody)}">
-                  Copy XML
-                </button>
-              </div>
-              <pre class="code-view">${formatAndHighlightXml(api.requestBody)}</pre>
+      <div class="tab-pane ${depCount > 0 ? 'active' : ''}" data-pane-content="deps">
+        ${renderDependenciesPane(api.dependencies)}
+      </div>
+
+      <div class="tab-pane ${depCount === 0 ? 'active' : ''}" data-pane-content="payload">
+        <div class="pane-view-structured">
+          ${renderStructuredXml(api.parsedRequest, 'Request', api.index)}
+        </div>
+        <div class="pane-view-raw" style="display: none;">
+          <div class="raw-code-container">
+            <div class="raw-code-actions">
+              <button class="btn-secondary btn-copy-raw" data-copy="${escapeAttr(api.requestBody)}">
+                Copy XML
+              </button>
             </div>
+            <pre class="code-view">${formatAndHighlightXml(api.requestBody)}</pre>
           </div>
         </div>
+      </div>
 
-        <div class="tab-pane" data-pane-content="response">
-          <div class="pane-view-structured">
-            ${renderStructuredXml(api.parsedResponse, 'Response', api.index)}
-          </div>
-          <div class="pane-view-raw" style="display: none;">
-            <div class="raw-code-container">
-              <div class="raw-code-actions">
-                <button class="btn-secondary btn-copy-raw" data-copy="${escapeAttr(api.responseBody)}">
-                  Copy XML
-                </button>
-              </div>
-              <pre class="code-view">${formatAndHighlightXml(api.responseBody)}</pre>
+      <div class="tab-pane" data-pane-content="response">
+        <div class="pane-view-structured">
+          ${renderStructuredXml(api.parsedResponse, 'Response', api.index)}
+        </div>
+        <div class="pane-view-raw" style="display: none;">
+          <div class="raw-code-container">
+            <div class="raw-code-actions">
+              <button class="btn-secondary btn-copy-raw" data-copy="${escapeAttr(api.responseBody)}">
+                Copy XML
+              </button>
             </div>
+            <pre class="code-view">${formatAndHighlightXml(api.responseBody)}</pre>
           </div>
         </div>
       </div>
     `;
 
-    const header = card.querySelector('.card-header');
-    header.addEventListener('click', () => {
-      card.classList.toggle('open');
-    });
-
-    const tabBtns = card.querySelectorAll('.tab-btn');
-    const tabPanes = card.querySelectorAll('.tab-pane');
+    // Inner drawer sub-tab buttons
+    const tabBtns = drawer.querySelectorAll('.tab-btn');
+    const tabPanes = drawer.querySelectorAll('.tab-pane');
 
     tabBtns.forEach((btn) => {
       btn.addEventListener('click', (e) => {
@@ -427,12 +527,13 @@
         tabPanes.forEach((p) => p.classList.remove('active'));
 
         btn.classList.add('active');
-        const targetPane = card.querySelector(`.tab-pane[data-pane-content="${target}"]`);
+        const targetPane = drawer.querySelector(`.tab-pane[data-pane-content="${target}"]`);
         if (targetPane) targetPane.classList.add('active');
       });
     });
 
-    const toggleOpts = card.querySelectorAll('.toggle-opt');
+    // Inner view mode toggle
+    const toggleOpts = drawer.querySelectorAll('.toggle-opt');
     toggleOpts.forEach((opt) => {
       opt.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -440,7 +541,7 @@
         opt.classList.add('active');
         const mode = opt.getAttribute('data-mode');
 
-        const activePane = card.querySelector('.tab-pane.active');
+        const activePane = drawer.querySelector('.tab-pane.active');
         if (activePane) {
           const structView = activePane.querySelector('.pane-view-structured');
           const rawView = activePane.querySelector('.pane-view-raw');
@@ -457,15 +558,16 @@
       });
     });
 
-    const copyRawBtns = card.querySelectorAll('.btn-copy-raw');
-    copyRawBtns.forEach((btn) => {
+    // Copy Raw XML buttons
+    drawer.querySelectorAll('.btn-copy-raw').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         copyToClipboard(btn.getAttribute('data-copy'));
       });
     });
 
-    card.addEventListener('click', (e) => {
+    // Delegated copy & export buttons inside drawer
+    drawer.addEventListener('click', (e) => {
       const copyTarget = e.target.closest('[data-copy-text]');
       if (copyTarget) {
         e.stopPropagation();
@@ -480,8 +582,6 @@
         handleExportSingleApiCsv(aIndex, aType);
       }
     });
-
-    return card;
   }
 
   function renderDependenciesPane(dependencies) {
@@ -683,7 +783,7 @@
     }
   }
   // ========================================================
-  // RENDER 2: Comprehensive Table Matrix View
+  // RENDER 2: High-Performance Paged Table Matrix View
   // ========================================================
   function renderActiveTableView() {
     matrixTable.innerHTML = '';
@@ -700,6 +800,29 @@
     }
   }
 
+  function updateTablePaginationBar(totalItems) {
+    if (totalItems === 0) {
+      tablePaginationInfo.textContent = 'Showing 0-0 of 0';
+      pageCurrentDisplay.textContent = 'Page 0 / 0';
+      btnPrevTablePage.disabled = true;
+      btnNextTablePage.disabled = true;
+      return;
+    }
+
+    const totalPages = Math.ceil(totalItems / tablePageSize) || 1;
+    if (tableCurrentPage > totalPages) tableCurrentPage = totalPages;
+    if (tableCurrentPage < 1) tableCurrentPage = 1;
+
+    const startIdx = (tableCurrentPage - 1) * tablePageSize + 1;
+    const endIdx = Math.min(tableCurrentPage * tablePageSize, totalItems);
+
+    tablePaginationInfo.textContent = `Showing ${startIdx}-${endIdx} of ${totalItems}`;
+    pageCurrentDisplay.textContent = `Page ${tableCurrentPage} / ${totalPages}`;
+
+    btnPrevTablePage.disabled = tableCurrentPage <= 1;
+    btnNextTablePage.disabled = tableCurrentPage >= totalPages;
+  }
+
   function renderDependenciesMatrixTable(apis) {
     const allDeps = [];
     apis.forEach((api) => {
@@ -708,7 +831,10 @@
       }
     });
 
-    if (allDeps.length === 0) {
+    const totalItems = allDeps.length;
+    updateTablePaginationBar(totalItems);
+
+    if (totalItems === 0) {
       matrixTable.innerHTML = `
         <tbody>
           <tr>
@@ -720,6 +846,8 @@
       `;
       return;
     }
+
+    const pagedDeps = allDeps.slice((tableCurrentPage - 1) * tablePageSize, tableCurrentPage * tablePageSize);
 
     let thead = `
       <thead>
@@ -737,7 +865,8 @@
     `;
 
     let tbody = '<tbody>';
-    allDeps.forEach((dep, idx) => {
+    pagedDeps.forEach((dep, idx) => {
+      const globalIdx = (tableCurrentPage - 1) * tablePageSize + idx + 1;
       let targetPath = dep.targetUrl;
       let sourcePath = dep.sourceApiUrl;
       try {
@@ -747,7 +876,7 @@
 
       tbody += `
         <tr>
-          <td style="color: var(--text-faint);">${idx + 1}</td>
+          <td style="color: var(--text-faint);">${globalIdx}</td>
           <td>
             <span style="color: #60a5fa; font-weight: 600;">#${dep.targetApiNo} ${dep.targetMethod}</span>
             <span style="color: var(--text-main);" title="${escapeHtml(dep.targetUrl)}">${escapeHtml(targetPath)}</span>
@@ -784,7 +913,10 @@
   }
 
   function renderApisSummaryTable(apis) {
-    if (apis.length === 0) {
+    const totalItems = apis.length;
+    updateTablePaginationBar(totalItems);
+
+    if (totalItems === 0) {
       matrixTable.innerHTML = `
         <tbody>
           <tr>
@@ -796,6 +928,8 @@
       `;
       return;
     }
+
+    const pagedApis = apis.slice((tableCurrentPage - 1) * tablePageSize, tableCurrentPage * tablePageSize);
 
     let thead = `
       <thead>
@@ -814,7 +948,7 @@
     `;
 
     let tbody = '<tbody>';
-    apis.forEach((api) => {
+    pagedApis.forEach((api) => {
       const timeStr = new Date(api.timestamp).toLocaleTimeString();
       const depCount = (api.dependencies || []).length;
       const isSuccess = api.status >= 200 && api.status < 300;
@@ -873,10 +1007,13 @@
   }
 
   function renderPayloadsOrResponsesTable(apis, type) {
-    const items = extractXmlFlatItems(apis, type);
+    const allItems = extractXmlFlatItems(apis, type);
+    const totalItems = allItems.length;
     const label = type === 'request' ? 'Payload (Request)' : 'Response';
 
-    if (items.length === 0) {
+    updateTablePaginationBar(totalItems);
+
+    if (totalItems === 0) {
       matrixTable.innerHTML = `
         <tbody>
           <tr>
@@ -888,6 +1025,8 @@
       `;
       return;
     }
+
+    const pagedItems = allItems.slice((tableCurrentPage - 1) * tablePageSize, tableCurrentPage * tablePageSize);
 
     let thead = `
       <thead>
@@ -904,7 +1043,8 @@
     `;
 
     let tbody = '<tbody>';
-    items.forEach((item, idx) => {
+    pagedItems.forEach((item, idx) => {
+      const globalIdx = (tableCurrentPage - 1) * tablePageSize + idx + 1;
       let pathOnly = item.url;
       try {
         pathOnly = new URL(item.url).pathname;
@@ -916,7 +1056,7 @@
 
       tbody += `
         <tr>
-          <td style="color: var(--text-faint);">${idx + 1}</td>
+          <td style="color: var(--text-faint);">${globalIdx}</td>
           <td>
             <span style="color: #38bdf8; font-weight: 600;">#${item.apiIndex} ${item.method}</span>
             <span style="color: var(--text-main); margin-left: 4px;" title="${escapeHtml(item.url)}">${escapeHtml(pathOnly)}</span>
@@ -946,7 +1086,7 @@
     });
   }
   // ========================================================
-  // EXPORT FUNCTIONS: CSV & JSON
+  // EXPORT FUNCTIONS: CSV & JSON (Unpaginated Full Export)
   // ========================================================
   function escapeCsvCell(val) {
     if (val === null || val === undefined) return '""';

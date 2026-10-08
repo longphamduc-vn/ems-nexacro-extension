@@ -282,6 +282,13 @@
       position: relative;
     }
 
+    #cardsViewContainer {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
     #apiList {
       flex: 1;
       overflow-y: auto;
@@ -303,7 +310,17 @@
       border-radius: 3px;
     }
 
-    .empty-state {
+    .cards-footer-bar {
+      padding: 6px 14px;
+      background: #111827;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }    .empty-state {
       margin: auto;
       text-align: center;
       color: var(--text-muted);
@@ -331,7 +348,9 @@
       color: var(--text-muted);
       max-width: 320px;
       line-height: 1.4;
-    }    .api-card {
+    }
+
+    .api-card {
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-lg);
@@ -838,6 +857,34 @@
       background: rgba(37, 99, 235, 0.08);
     }
 
+    .table-pagination-bar {
+      padding: 5px 12px;
+      background: #111827;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .page-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .page-size-select {
+      background: var(--bg-code);
+      color: var(--text-main);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      padding: 2px 5px;
+      font-size: 10.5px;
+      outline: none;
+    }
+
     #toast {
       position: fixed;
       bottom: 16px;
@@ -938,8 +985,18 @@
   </header>
 
   <div id="mainViewArea">
-    <div id="apiList"></div>
+    <!-- View 1: Card List View with Load-More / Pagination -->
+    <div id="cardsViewContainer">
+      <div id="apiList"></div>
+      <div class="cards-footer-bar" id="cardsFooterBar">
+        <span id="cardsCountLabel">Showing 0 of 0 requests</span>
+        <button id="btnLoadMoreCards" class="btn-secondary" style="font-size: 10.5px; padding: 2px 7px;">
+          Load More
+        </button>
+      </div>
+    </div>
 
+    <!-- View 2: Full Table Matrix View with Table Pagination -->
     <div id="tableViewContainer">
       <div class="table-view-header">
         <div class="table-view-tabs">
@@ -965,6 +1022,20 @@
 
       <div class="table-scroll-wrap">
         <table class="matrix-table" id="matrixTable"></table>
+      </div>
+
+      <div class="table-pagination-bar" id="tablePaginationBar">
+        <div id="tablePaginationInfo">Showing 0-0 of 0</div>
+        <div class="page-controls">
+          <select id="pageSizeSelect" class="page-size-select">
+            <option value="25">25 / page</option>
+            <option value="50" selected>50 / page</option>
+            <option value="100">100 / page</option>
+          </select>
+          <button id="btnPrevTablePage" class="btn-secondary" style="padding: 2px 6px;">‹ Prev</button>
+          <span id="pageCurrentDisplay" style="font-size: 11px; color: var(--text-muted); font-weight: 600;">Page 1 / 1</span>
+          <button id="btnNextTablePage" class="btn-secondary" style="padding: 2px 6px;">Next ›</button>
+        </div>
       </div>
     </div>
   </div>
