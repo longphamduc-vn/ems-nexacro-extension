@@ -1,6 +1,6 @@
 /**
  * popup.js - High-Performance Extension UI & Multi-Table Exporter
- * Optimized for large API volumes with Virtual Batching, Lazy Drawer Rendering, and Paged Table Matrix.
+ * Features: Full-Tab Mode, Data Origin Lineage (User Input vs Prior Response), and Paged Table Matrix.
  */
 (function () {
   'use strict';
@@ -8,7 +8,15 @@
   const STORAGE_KEY = 'ems_captured_apis';
   const CARDS_BATCH_SIZE = 25;
 
+  // Check if opened in full tab mode
+  const urlParams = new URLSearchParams(window.location.search);
+  const isFullTab = urlParams.get('mode') === 'tab' || window.innerWidth > 800;
+  if (isFullTab) {
+    document.body.classList.add('full-tab-mode');
+  }
+
   // DOM elements
+  const btnOpenFullTab = document.getElementById('btnOpenFullTab');
   const apiListContainer = document.getElementById('apiList');
   const cardsFooterBar = document.getElementById('cardsFooterBar');
   const cardsCountLabel = document.getElementById('cardsCountLabel');
@@ -38,6 +46,7 @@
   const searchInput = document.getElementById('searchInput');
   const countAllEl = document.getElementById('countAll');
   const countDepsEl = document.getElementById('countDeps');
+  const countInputsEl = document.getElementById('countInputs');
   const countErrorsEl = document.getElementById('countErrors');
   
   const tableDepsCount = document.getElementById('tableDepsCount');
@@ -52,7 +61,7 @@
   // Application State
   let currentLogs = [];
   let computedLogs = [];
-  let activeFilter = 'all'; // 'all', 'deps', 'errors'
+  let activeFilter = 'all'; // 'all', 'deps', 'user_inputs', 'errors'
   let currentViewMode = 'cards'; // 'cards' | 'table'
   let activeTableTab = 'matrix'; // 'matrix' | 'summary' | 'payloads' | 'responses'
   
@@ -69,7 +78,12 @@
   });
 
   function setupEventListeners() {
-    // 1. Export Menu
+    // 1. Full Tab Button
+    btnOpenFullTab.addEventListener('click', () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL('popup.html?mode=tab') });
+    });
+
+    // 2. Export Menu
     btnExportMenu.addEventListener('click', (e) => {
       e.stopPropagation();
       exportDropdownContainer.classList.toggle('open');
@@ -116,7 +130,7 @@
       }
     });
 
-    // 2. View Mode Toggle
+    // 3. View Mode Toggle
     btnToggleView.addEventListener('click', () => {
       if (currentViewMode === 'cards') {
         currentViewMode = 'table';
@@ -136,7 +150,7 @@
       }
     });
 
-    // 3. Cards Batch Load More & Infinite Scroll
+    // 4. Cards Batch Load More & Infinite Scroll
     btnLoadMoreCards.addEventListener('click', () => {
       renderNextCardsBatch();
     });
@@ -147,7 +161,7 @@
       }
     });
 
-    // 4. Table Sub-tabs
+    // 5. Table Sub-tabs
     tableSubtabs.forEach((tab) => {
       tab.addEventListener('click', () => {
         tableSubtabs.forEach((t) => t.classList.remove('active'));
@@ -158,7 +172,7 @@
       });
     });
 
-    // 5. Table Pagination Controls
+    // 6. Table Pagination Controls
     pageSizeSelect.addEventListener('change', (e) => {
       tablePageSize = parseInt(e.target.value, 10);
       tableCurrentPage = 1;
@@ -177,7 +191,7 @@
       renderActiveTableView();
     });
 
-    // 6. Search & Filters with Debounce
+    // 7. Search & Filters with Debounce
     btnClear.addEventListener('click', handleClearLogs);
     searchInput.addEventListener('input', () => {
       clearTimeout(searchDebounceTimer);
@@ -252,12 +266,19 @@
         targetUrl: current.url
       }));
 
+      // Pre-index sourced targets for O(1) origin lookup
+      const sourcedTargetsMap = new Map();
+      dependencies.forEach((d) => {
+        sourcedTargetsMap.set(d.targetLocation, d);
+      });
+
       computedLogs.push({
         ...current,
         index: i + 1,
         parsedRequest: parsedRequest,
         parsedResponse: parsedResponse,
-        dependencies: dependencies
+        dependencies: dependencies,
+        sourcedTargetsMap: sourcedTargetsMap
       });
     }
   }
@@ -267,23 +288,30 @@
     const depsCount = computedLogs.filter((item) => item.dependencies && item.dependencies.length > 0).length;
     const errorsCount = computedLogs.filter((item) => item.status >= 400 || item.status === 0).length;
 
-    countAllEl.textContent = String(total);
-    countDepsEl.textContent = String(depsCount);
-    countErrorsEl.textContent = String(errorsCount);
-
     let totalDepMappings = 0;
     let totalReqItems = 0;
     let totalResItems = 0;
+    let totalUserInputs = 0;
 
     computedLogs.forEach((item) => {
       totalDepMappings += (item.dependencies || []).length;
       if (item.parsedRequest && item.parsedRequest.flatItems) {
         totalReqItems += item.parsedRequest.flatItems.length;
+        item.parsedRequest.flatItems.forEach((f) => {
+          if (!item.sourcedTargetsMap.has(f.xpath)) {
+            totalUserInputs++;
+          }
+        });
       }
       if (item.parsedResponse && item.parsedResponse.flatItems) {
         totalResItems += item.parsedResponse.flatItems.length;
       }
     });
+
+    countAllEl.textContent = String(total);
+    countDepsEl.textContent = String(depsCount);
+    countInputsEl.textContent = String(totalUserInputs);
+    countErrorsEl.textContent = String(errorsCount);
 
     tableDepsCount.textContent = String(totalDepMappings);
     tableApisCount.textContent = String(total);
@@ -297,6 +325,11 @@
     return computedLogs.filter((item) => {
       if (activeFilter === 'deps' && (!item.dependencies || item.dependencies.length === 0)) {
         return false;
+      }
+      if (activeFilter === 'user_inputs') {
+        const hasInputs = item.parsedRequest && item.parsedRequest.flatItems &&
+          item.parsedRequest.flatItems.some((f) => !item.sourcedTargetsMap.has(f.xpath));
+        if (!hasInputs) return false;
       }
       if (activeFilter === 'errors' && !(item.status >= 400 || item.status === 0)) {
         return false;
@@ -408,7 +441,6 @@
 
     const durationText = api.durationMs ? `${api.durationMs}ms` : '';
 
-    // Compact Summary Header only - Drawer is lazily constructed on click!
     card.innerHTML = `
       <div class="card-header">
         <div class="card-meta-left">
@@ -437,7 +469,6 @@
       <div class="card-drawer"></div>
     `;
 
-    // Lazy Accordion Expansion
     const header = card.querySelector('.card-header');
     header.addEventListener('click', () => {
       const isCurrentlyOpen = card.classList.contains('open');
@@ -484,7 +515,7 @@
 
       <div class="tab-pane ${depCount === 0 ? 'active' : ''}" data-pane-content="payload">
         <div class="pane-view-structured">
-          ${renderStructuredXml(api.parsedRequest, 'Request', api.index)}
+          ${renderStructuredXml(api.parsedRequest, 'Request', api.index, api.sourcedTargetsMap)}
         </div>
         <div class="pane-view-raw" style="display: none;">
           <div class="raw-code-container">
@@ -500,7 +531,7 @@
 
       <div class="tab-pane" data-pane-content="response">
         <div class="pane-view-structured">
-          ${renderStructuredXml(api.parsedResponse, 'Response', api.index)}
+          ${renderStructuredXml(api.parsedResponse, 'Response', api.index, null)}
         </div>
         <div class="pane-view-raw" style="display: none;">
           <div class="raw-code-container">
@@ -515,7 +546,6 @@
       </div>
     `;
 
-    // Inner drawer sub-tab buttons
     const tabBtns = drawer.querySelectorAll('.tab-btn');
     const tabPanes = drawer.querySelectorAll('.tab-pane');
 
@@ -532,7 +562,6 @@
       });
     });
 
-    // Inner view mode toggle
     const toggleOpts = drawer.querySelectorAll('.toggle-opt');
     toggleOpts.forEach((opt) => {
       opt.addEventListener('click', (e) => {
@@ -558,7 +587,6 @@
       });
     });
 
-    // Copy Raw XML buttons
     drawer.querySelectorAll('.btn-copy-raw').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -566,7 +594,6 @@
       });
     });
 
-    // Delegated copy & export buttons inside drawer
     drawer.addEventListener('click', (e) => {
       const copyTarget = e.target.closest('[data-copy-text]');
       if (copyTarget) {
@@ -588,7 +615,7 @@
     if (!dependencies || dependencies.length === 0) {
       return `
         <div style="padding: 14px; text-align: center; color: var(--text-muted); font-size: 11.5px;">
-          No incoming data dependencies detected. All values appear to be user inputs or constants.
+          No incoming data dependencies detected. All values appear to be direct user inputs or static constants.
         </div>
       `;
     }
@@ -638,7 +665,7 @@
     return `<div class="dep-flow-container">${itemsHtml}</div>`;
   }
 
-  function renderStructuredXml(parsedObj, label, apiIndex) {
+  function renderStructuredXml(parsedObj, label, apiIndex, sourcedTargetsMap) {
     if (!parsedObj || !parsedObj.isValidNexacro) {
       return `
         <div style="padding: 10px; color: var(--text-muted); font-size: 11.5px;">
@@ -655,15 +682,28 @@
       </div>
     `;
 
+    const isRequest = label.toLowerCase() === 'request';
     const paramKeys = Object.keys(parsedObj.parameters || {});
     if (paramKeys.length > 0) {
       let rows = '';
       paramKeys.forEach((key) => {
         const p = parsedObj.parameters[key];
+        
+        let originBadge = '';
+        if (isRequest && sourcedTargetsMap) {
+          if (sourcedTargetsMap.has(p.xpath)) {
+            const dep = sourcedTargetsMap.get(p.xpath);
+            originBadge = `<span class="badge-origin sourced" title="Sourced from Response of API #${dep.sourceApiNo} (${dep.sourceKey})">🔗 API #${dep.sourceApiNo} (${escapeHtml(dep.sourceKey)})</span>`;
+          } else {
+            originBadge = `<span class="badge-origin input" title="Direct user input or static constant">✍️ User Input</span>`;
+          }
+        }
+
         rows += `
           <tr>
             <td style="font-weight: 600; color: #60a5fa;">${escapeHtml(p.id)}</td>
             <td style="color: #34d399;">${escapeHtml(p.value)}</td>
+            ${isRequest ? `<td>${originBadge}</td>` : ''}
             <td style="color: var(--text-faint);">${escapeHtml(p.xpath)}</td>
             <td style="text-align: right;">
               <button class="copy-btn" title="Copy XPath" data-copy-text="${escapeAttr(p.xpath)}">📋</button>
@@ -683,6 +723,7 @@
                 <tr>
                   <th>Parameter ID</th>
                   <th>Value</th>
+                  ${isRequest ? `<th>Data Origin</th>` : ''}
                   <th>XPath</th>
                   <th style="width: 25px;"></th>
                 </tr>
@@ -708,10 +749,20 @@
 
         let trs = '';
         rows.forEach((row, rIdx) => {
-          let tds = `<td style="color: var(--text-faint);">${rIdx + 1}</td>`;
+          const rowNum = rIdx + 1;
+          let tds = `<td style="color: var(--text-faint);">${rowNum}</td>`;
           cols.forEach((col) => {
             const cellVal = row[col.id] || '';
-            tds += `<td>${escapeHtml(cellVal)}</td>`;
+            const cellXPath = `/Root/Dataset[@id='${dsId}']/Rows/Row[${rowNum}]/Col[@id='${col.id}']`;
+            
+            let cellStyle = '';
+            let originIcon = '';
+            if (isRequest && sourcedTargetsMap && sourcedTargetsMap.has(cellXPath)) {
+              cellStyle = 'color: #c084fc; font-weight: 600;';
+              originIcon = ' <span title="Sourced from prior API response" style="font-size: 10px;">🔗</span>';
+            }
+
+            tds += `<td style="${cellStyle}">${escapeHtml(cellVal)}${originIcon}</td>`;
           });
           trs += `<tr>${tds}</tr>`;
         });
@@ -990,6 +1041,13 @@
       const parsed = type === 'request' ? api.parsedRequest : api.parsedResponse;
       if (!parsed || !parsed.flatItems) return;
       parsed.flatItems.forEach((item) => {
+        let isSourced = false;
+        let sourceDep = null;
+        if (type === 'request' && api.sourcedTargetsMap && api.sourcedTargetsMap.has(item.xpath)) {
+          isSourced = true;
+          sourceDep = api.sourcedTargetsMap.get(item.xpath);
+        }
+
         list.push({
           apiIndex: api.index,
           method: api.method,
@@ -999,7 +1057,9 @@
           rowIndex: item.rowIndex ? `#${item.rowIndex}` : '-',
           fieldName: item.key,
           value: item.value,
-          xpath: item.xpath
+          xpath: item.xpath,
+          isSourced: isSourced,
+          sourceDep: sourceDep
         });
       });
     });
@@ -1007,17 +1067,24 @@
   }
 
   function renderPayloadsOrResponsesTable(apis, type) {
-    const allItems = extractXmlFlatItems(apis, type);
-    const totalItems = allItems.length;
+    let allItems = extractXmlFlatItems(apis, type);
     const label = type === 'request' ? 'Payload (Request)' : 'Response';
 
+    // Filter by user_inputs if active
+    if (activeFilter === 'user_inputs' && type === 'request') {
+      allItems = allItems.filter((i) => !i.isSourced);
+    } else if (activeFilter === 'deps' && type === 'request') {
+      allItems = allItems.filter((i) => i.isSourced);
+    }
+
+    const totalItems = allItems.length;
     updateTablePaginationBar(totalItems);
 
     if (totalItems === 0) {
       matrixTable.innerHTML = `
         <tbody>
           <tr>
-            <td colspan="7" style="padding: 40px; text-align: center; color: var(--text-muted);">
+            <td colspan="8" style="padding: 40px; text-align: center; color: var(--text-muted);">
               No Nexacro parameters or datasets found in ${label} matching filters.
             </td>
           </tr>
@@ -1027,6 +1094,7 @@
     }
 
     const pagedItems = allItems.slice((tableCurrentPage - 1) * tablePageSize, tableCurrentPage * tablePageSize);
+    const isRequest = type === 'request';
 
     let thead = `
       <thead>
@@ -1037,6 +1105,7 @@
           <th>Row</th>
           <th>Field Name</th>
           <th>Value</th>
+          ${isRequest ? `<th>Data Origin (Nguồn gốc)</th>` : ''}
           <th>XPath</th>
         </tr>
       </thead>
@@ -1054,6 +1123,15 @@
         ? `<span style="color: #60a5fa; font-weight: 600;">Parameter</span>`
         : `<span style="color: #c084fc; font-weight: 600;">Dataset: ${escapeHtml(item.datasetId)}</span>`;
 
+      let originBadge = '';
+      if (isRequest) {
+        if (item.isSourced && item.sourceDep) {
+          originBadge = `<span class="badge-origin sourced" title="Sourced from Response of API #${item.sourceDep.sourceApiNo} (${item.sourceDep.sourceKey})">🔗 API #${item.sourceDep.sourceApiNo} (${escapeHtml(item.sourceDep.sourceKey)})</span>`;
+        } else {
+          originBadge = `<span class="badge-origin input" title="Direct input by user or static constant">✍️ User Input</span>`;
+        }
+      }
+
       tbody += `
         <tr>
           <td style="color: var(--text-faint);">${globalIdx}</td>
@@ -1069,6 +1147,7 @@
               "${escapeHtml(item.value)}" 📋
             </span>
           </td>
+          ${isRequest ? `<td>${originBadge}</td>` : ''}
           <td style="color: #38bdf8; cursor: pointer;" title="Click to copy XPath" data-copy-text="${escapeAttr(item.xpath)}">
             ${escapeHtml(item.xpath)} 📋
           </td>
@@ -1234,6 +1313,10 @@
       'Row_Index',
       'Field_Name',
       'Value',
+      'Data_Origin',
+      'Source_API_No',
+      'Source_Field',
+      'Source_XPath',
       'XPath'
     ];
 
@@ -1247,6 +1330,10 @@
       item.rowIndex,
       item.fieldName,
       item.value,
+      item.isSourced ? 'Sourced from Prior Response' : 'User Input',
+      item.sourceDep ? item.sourceDep.sourceApiNo : '-',
+      item.sourceDep ? item.sourceDep.sourceKey : '-',
+      item.sourceDep ? item.sourceDep.sourceXPath : '-',
       item.xpath
     ]);
 
@@ -1301,31 +1388,49 @@
       return;
     }
 
-    const headers = [
-      'Index',
-      'API_No',
-      'Method',
-      'URL',
-      'Category',
-      'Dataset_ID',
-      'Row_Index',
-      'Field_Name',
-      'Value',
-      'XPath'
-    ];
+    const isRequest = type === 'request';
+    const headers = isRequest
+      ? ['Index', 'API_No', 'Method', 'URL', 'Category', 'Dataset_ID', 'Row_Index', 'Field_Name', 'Value', 'Data_Origin', 'Source_Origin', 'XPath']
+      : ['Index', 'API_No', 'Method', 'URL', 'Category', 'Dataset_ID', 'Row_Index', 'Field_Name', 'Value', 'XPath'];
 
-    const rows = parsed.flatItems.map((item, idx) => [
-      idx + 1,
-      api.index,
-      api.method,
-      api.url,
-      item.sourceType,
-      item.datasetId || '-',
-      item.rowIndex ? `#${item.rowIndex}` : '-',
-      item.key,
-      item.value,
-      item.xpath
-    ]);
+    const rows = parsed.flatItems.map((item, idx) => {
+      if (isRequest) {
+        let isSourced = false;
+        let sourceDetail = '-';
+        if (api.sourcedTargetsMap && api.sourcedTargetsMap.has(item.xpath)) {
+          isSourced = true;
+          const d = api.sourcedTargetsMap.get(item.xpath);
+          sourceDetail = `API #${d.sourceApiNo} (${d.sourceKey})`;
+        }
+        return [
+          idx + 1,
+          api.index,
+          api.method,
+          api.url,
+          item.sourceType,
+          item.datasetId || '-',
+          item.rowIndex ? `#${item.rowIndex}` : '-',
+          item.key,
+          item.value,
+          isSourced ? 'Sourced from Prior Response' : 'User Input',
+          sourceDetail,
+          item.xpath
+        ];
+      } else {
+        return [
+          idx + 1,
+          api.index,
+          api.method,
+          api.url,
+          item.sourceType,
+          item.datasetId || '-',
+          item.rowIndex ? `#${item.rowIndex}` : '-',
+          item.key,
+          item.value,
+          item.xpath
+        ];
+      }
+    });
 
     const csvData = createCsvContent(headers, rows);
     downloadFile(csvData, `api_${api.index}_${type}_table_${Date.now()}.csv`, 'text/csv;charset=utf-8;');
