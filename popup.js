@@ -1,6 +1,6 @@
 /**
- * popup.js - Modernized Extension UI & Table Matrix Exporter
- * Features: DevTools Card Inspector, Comprehensive Table Matrix View, and Multi-Format CSV/JSON Exporters.
+ * popup.js - Modernized Extension UI & Multi-Table Exporter
+ * Features: DevTools Card Inspector, Comprehensive Table Matrix View for Dependencies, Payloads & Responses.
  */
 (function () {
   'use strict';
@@ -18,6 +18,8 @@
   const btnExportMenu = document.getElementById('btnExportMenu');
   const btnExportCsvDeps = document.getElementById('btnExportCsvDeps');
   const btnExportCsvApis = document.getElementById('btnExportCsvApis');
+  const btnExportCsvPayloads = document.getElementById('btnExportCsvPayloads');
+  const btnExportCsvResponses = document.getElementById('btnExportCsvResponses');
   const btnExportJson = document.getElementById('btnExportJson');
   const btnDownloadActiveTableCsv = document.getElementById('btnDownloadActiveTableCsv');
 
@@ -26,8 +28,12 @@
   const countAllEl = document.getElementById('countAll');
   const countDepsEl = document.getElementById('countDeps');
   const countErrorsEl = document.getElementById('countErrors');
+  
   const tableDepsCount = document.getElementById('tableDepsCount');
   const tableApisCount = document.getElementById('tableApisCount');
+  const tablePayloadsCount = document.getElementById('tablePayloadsCount');
+  const tableResponsesCount = document.getElementById('tableResponsesCount');
+  
   const toastEl = document.getElementById('toast');
   const filterChips = document.querySelectorAll('.chip');
   const tableSubtabs = document.querySelectorAll('.table-subtab');
@@ -37,7 +43,7 @@
   let computedLogs = [];
   let activeFilter = 'all'; // 'all', 'deps', 'errors'
   let currentViewMode = 'cards'; // 'cards' | 'table'
-  let activeTableTab = 'matrix'; // 'matrix' | 'summary'
+  let activeTableTab = 'matrix'; // 'matrix' | 'summary' | 'payloads' | 'responses'
   let toastTimer = null;
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -66,6 +72,16 @@
       handleExportCsvApis();
     });
 
+    btnExportCsvPayloads.addEventListener('click', () => {
+      exportDropdownContainer.classList.remove('open');
+      handleExportCsvPayloads();
+    });
+
+    btnExportCsvResponses.addEventListener('click', () => {
+      exportDropdownContainer.classList.remove('open');
+      handleExportCsvResponses();
+    });
+
     btnExportJson.addEventListener('click', () => {
       exportDropdownContainer.classList.remove('open');
       handleExportJSON();
@@ -74,8 +90,12 @@
     btnDownloadActiveTableCsv.addEventListener('click', () => {
       if (activeTableTab === 'matrix') {
         handleExportCsvDependencies();
-      } else {
+      } else if (activeTableTab === 'summary') {
         handleExportCsvApis();
+      } else if (activeTableTab === 'payloads') {
+        handleExportCsvPayloads();
+      } else if (activeTableTab === 'responses') {
+        handleExportCsvResponses();
       }
     });
 
@@ -198,11 +218,23 @@
     countErrorsEl.textContent = String(errorsCount);
 
     let totalDepMappings = 0;
+    let totalReqItems = 0;
+    let totalResItems = 0;
+
     computedLogs.forEach((item) => {
       totalDepMappings += (item.dependencies || []).length;
+      if (item.parsedRequest && item.parsedRequest.flatItems) {
+        totalReqItems += item.parsedRequest.flatItems.length;
+      }
+      if (item.parsedResponse && item.parsedResponse.flatItems) {
+        totalResItems += item.parsedResponse.flatItems.length;
+      }
     });
+
     tableDepsCount.textContent = String(totalDepMappings);
     tableApisCount.textContent = String(total);
+    tablePayloadsCount.textContent = String(totalReqItems);
+    tableResponsesCount.textContent = String(totalResItems);
   }
 
   function getFilteredApis() {
@@ -233,7 +265,21 @@
         );
       }
 
-      return inUrl || inMethod || inStatus || inDeps;
+      let inPayload = false;
+      if (item.parsedRequest && item.parsedRequest.flatItems) {
+        inPayload = item.parsedRequest.flatItems.some(
+          (f) => f.key.toLowerCase().includes(query) || f.value.toLowerCase().includes(query)
+        );
+      }
+
+      let inResponse = false;
+      if (item.parsedResponse && item.parsedResponse.flatItems) {
+        inResponse = item.parsedResponse.flatItems.some(
+          (f) => f.key.toLowerCase().includes(query) || f.value.toLowerCase().includes(query)
+        );
+      }
+
+      return inUrl || inMethod || inStatus || inDeps || inPayload || inResponse;
     });
   }
   // ========================================================
@@ -333,7 +379,7 @@
 
         <div class="tab-pane ${depCount === 0 ? 'active' : ''}" data-pane-content="payload">
           <div class="pane-view-structured">
-            ${renderStructuredXml(api.parsedRequest, 'Request')}
+            ${renderStructuredXml(api.parsedRequest, 'Request', api.index)}
           </div>
           <div class="pane-view-raw" style="display: none;">
             <div class="raw-code-container">
@@ -349,7 +395,7 @@
 
         <div class="tab-pane" data-pane-content="response">
           <div class="pane-view-structured">
-            ${renderStructuredXml(api.parsedResponse, 'Response')}
+            ${renderStructuredXml(api.parsedResponse, 'Response', api.index)}
           </div>
           <div class="pane-view-raw" style="display: none;">
             <div class="raw-code-container">
@@ -425,6 +471,14 @@
         e.stopPropagation();
         copyToClipboard(copyTarget.getAttribute('data-copy-text'));
       }
+
+      const singleExportBtn = e.target.closest('.btn-export-single-csv');
+      if (singleExportBtn) {
+        e.stopPropagation();
+        const aIndex = parseInt(singleExportBtn.getAttribute('data-api-index'), 10);
+        const aType = singleExportBtn.getAttribute('data-type');
+        handleExportSingleApiCsv(aIndex, aType);
+      }
     });
 
     return card;
@@ -484,7 +538,7 @@
     return `<div class="dep-flow-container">${itemsHtml}</div>`;
   }
 
-  function renderStructuredXml(parsedObj, label) {
+  function renderStructuredXml(parsedObj, label, apiIndex) {
     if (!parsedObj || !parsedObj.isValidNexacro) {
       return `
         <div style="padding: 10px; color: var(--text-muted); font-size: 11.5px;">
@@ -493,7 +547,13 @@
       `;
     }
 
-    let html = '';
+    let html = `
+      <div style="display: flex; justify-content: flex-end; margin-bottom: 6px;">
+        <button class="btn-secondary btn-export-single-csv" data-api-index="${apiIndex}" data-type="${label.toLowerCase()}" style="font-size: 10.5px; padding: 2px 7px;">
+          📊 Export ${label} as CSV Table
+        </button>
+      </div>
+    `;
 
     const paramKeys = Object.keys(parsedObj.parameters || {});
     if (paramKeys.length > 0) {
@@ -631,8 +691,12 @@
 
     if (activeTableTab === 'matrix') {
       renderDependenciesMatrixTable(filteredApis);
-    } else {
+    } else if (activeTableTab === 'summary') {
       renderApisSummaryTable(filteredApis);
+    } else if (activeTableTab === 'payloads') {
+      renderPayloadsOrResponsesTable(filteredApis, 'request');
+    } else if (activeTableTab === 'responses') {
+      renderPayloadsOrResponsesTable(filteredApis, 'response');
     }
   }
 
@@ -786,6 +850,101 @@
     matrixTable.innerHTML = thead + tbody;
   }
 
+  function extractXmlFlatItems(apis, type) {
+    const list = [];
+    apis.forEach((api) => {
+      const parsed = type === 'request' ? api.parsedRequest : api.parsedResponse;
+      if (!parsed || !parsed.flatItems) return;
+      parsed.flatItems.forEach((item) => {
+        list.push({
+          apiIndex: api.index,
+          method: api.method,
+          url: api.url,
+          category: item.sourceType,
+          datasetId: item.datasetId || '-',
+          rowIndex: item.rowIndex ? `#${item.rowIndex}` : '-',
+          fieldName: item.key,
+          value: item.value,
+          xpath: item.xpath
+        });
+      });
+    });
+    return list;
+  }
+
+  function renderPayloadsOrResponsesTable(apis, type) {
+    const items = extractXmlFlatItems(apis, type);
+    const label = type === 'request' ? 'Payload (Request)' : 'Response';
+
+    if (items.length === 0) {
+      matrixTable.innerHTML = `
+        <tbody>
+          <tr>
+            <td colspan="7" style="padding: 40px; text-align: center; color: var(--text-muted);">
+              No Nexacro parameters or datasets found in ${label} matching filters.
+            </td>
+          </tr>
+        </tbody>
+      `;
+      return;
+    }
+
+    let thead = `
+      <thead>
+        <tr>
+          <th style="width: 40px;">#</th>
+          <th>API</th>
+          <th>Category / Dataset</th>
+          <th>Row</th>
+          <th>Field Name</th>
+          <th>Value</th>
+          <th>XPath</th>
+        </tr>
+      </thead>
+    `;
+
+    let tbody = '<tbody>';
+    items.forEach((item, idx) => {
+      let pathOnly = item.url;
+      try {
+        pathOnly = new URL(item.url).pathname;
+      } catch (e) {}
+
+      const catBadge = item.category === 'Parameter'
+        ? `<span style="color: #60a5fa; font-weight: 600;">Parameter</span>`
+        : `<span style="color: #c084fc; font-weight: 600;">Dataset: ${escapeHtml(item.datasetId)}</span>`;
+
+      tbody += `
+        <tr>
+          <td style="color: var(--text-faint);">${idx + 1}</td>
+          <td>
+            <span style="color: #38bdf8; font-weight: 600;">#${item.apiIndex} ${item.method}</span>
+            <span style="color: var(--text-main); margin-left: 4px;" title="${escapeHtml(item.url)}">${escapeHtml(pathOnly)}</span>
+          </td>
+          <td>${catBadge}</td>
+          <td style="color: var(--text-muted);">${item.rowIndex}</td>
+          <td style="font-weight: 600; color: #93c5fd;">${escapeHtml(item.fieldName)}</td>
+          <td>
+            <span class="dep-val-pill" style="cursor: pointer;" title="Click to copy value" data-copy-text="${escapeAttr(item.value)}">
+              "${escapeHtml(item.value)}" 📋
+            </span>
+          </td>
+          <td style="color: #38bdf8; cursor: pointer;" title="Click to copy XPath" data-copy-text="${escapeAttr(item.xpath)}">
+            ${escapeHtml(item.xpath)} 📋
+          </td>
+        </tr>
+      `;
+    });
+    tbody += '</tbody>';
+
+    matrixTable.innerHTML = thead + tbody;
+
+    matrixTable.querySelectorAll('[data-copy-text]').forEach((el) => {
+      el.addEventListener('click', () => {
+        copyToClipboard(el.getAttribute('data-copy-text'));
+      });
+    });
+  }
   // ========================================================
   // EXPORT FUNCTIONS: CSV & JSON
   // ========================================================
@@ -916,6 +1075,120 @@
 
     const csvData = createCsvContent(headers, rows);
     downloadFile(csvData, `nexacro_apis_summary_${Date.now()}.csv`, 'text/csv;charset=utf-8;');
+  }
+
+  function handleExportCsvPayloads() {
+    const items = extractXmlFlatItems(computedLogs, 'request');
+    if (items.length === 0) {
+      alert('No Nexacro parameters or datasets found in request payloads.');
+      return;
+    }
+
+    const headers = [
+      'Index',
+      'API_No',
+      'Method',
+      'URL',
+      'Category',
+      'Dataset_ID',
+      'Row_Index',
+      'Field_Name',
+      'Value',
+      'XPath'
+    ];
+
+    const rows = items.map((item, idx) => [
+      idx + 1,
+      item.apiIndex,
+      item.method,
+      item.url,
+      item.category,
+      item.datasetId,
+      item.rowIndex,
+      item.fieldName,
+      item.value,
+      item.xpath
+    ]);
+
+    const csvData = createCsvContent(headers, rows);
+    downloadFile(csvData, `nexacro_payloads_table_${Date.now()}.csv`, 'text/csv;charset=utf-8;');
+  }
+
+  function handleExportCsvResponses() {
+    const items = extractXmlFlatItems(computedLogs, 'response');
+    if (items.length === 0) {
+      alert('No Nexacro parameters or datasets found in responses.');
+      return;
+    }
+
+    const headers = [
+      'Index',
+      'API_No',
+      'Method',
+      'URL',
+      'Category',
+      'Dataset_ID',
+      'Row_Index',
+      'Field_Name',
+      'Value',
+      'XPath'
+    ];
+
+    const rows = items.map((item, idx) => [
+      idx + 1,
+      item.apiIndex,
+      item.method,
+      item.url,
+      item.category,
+      item.datasetId,
+      item.rowIndex,
+      item.fieldName,
+      item.value,
+      item.xpath
+    ]);
+
+    const csvData = createCsvContent(headers, rows);
+    downloadFile(csvData, `nexacro_responses_table_${Date.now()}.csv`, 'text/csv;charset=utf-8;');
+  }
+
+  function handleExportSingleApiCsv(apiIndex, type) {
+    const api = computedLogs.find((a) => a.index === apiIndex);
+    if (!api) return;
+
+    const parsed = type === 'request' ? api.parsedRequest : api.parsedResponse;
+    if (!parsed || !parsed.flatItems || parsed.flatItems.length === 0) {
+      alert(`No parsed Nexacro data found for this ${type}.`);
+      return;
+    }
+
+    const headers = [
+      'Index',
+      'API_No',
+      'Method',
+      'URL',
+      'Category',
+      'Dataset_ID',
+      'Row_Index',
+      'Field_Name',
+      'Value',
+      'XPath'
+    ];
+
+    const rows = parsed.flatItems.map((item, idx) => [
+      idx + 1,
+      api.index,
+      api.method,
+      api.url,
+      item.sourceType,
+      item.datasetId || '-',
+      item.rowIndex ? `#${item.rowIndex}` : '-',
+      item.key,
+      item.value,
+      item.xpath
+    ]);
+
+    const csvData = createCsvContent(headers, rows);
+    downloadFile(csvData, `api_${api.index}_${type}_table_${Date.now()}.csv`, 'text/csv;charset=utf-8;');
   }
 
   function handleExportJSON() {

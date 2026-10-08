@@ -23,15 +23,22 @@
    - Automatically detects data lineage across chronological API chains.
    - Traces if values inside a subsequent API request payload originated from prior API responses.
 
-5. **Modern Inspector UI & Tabular Views**:
+5. **Modern Inspector UI & Full Table Matrix**:
    - Sleek ~680px x 600px DevTools-grade dark theme with real-time filtering.
    - **Card View**: Collapsible cards with structured Parameter/Dataset tables and visual Lineage Flow cards.
-   - **Table Matrix View**: Dedicated spreadsheet-like matrix layout for direct data lineage analysis.
+   - **Table Matrix View**: Dedicated spreadsheet-like matrix layout with 4 sub-views:
+     - ⚡ **Dependencies Matrix Table**
+     - 🌐 **APIs Summary Table**
+     - 📤 **Payloads Table (Requests)**
+     - 📥 **Responses Table**
 
-6. **Multi-Format Table & JSON Exporters**:
-   - **📊 Export CSV (Dependencies Matrix)**: Exports tabular lineage matrix directly compatible with Excel (UTF-8 BOM).
-   - **📋 Export CSV (APIs Summary)**: Exports full API traffic sequence log as a CSV spreadsheet.
-   - **📥 Export JSON**: Exports the complete execution chain with raw payloads and parsed structures.
+6. **Comprehensive Multi-Format CSV & JSON Exporters**:
+   - **📊 Export CSV: Dependencies Matrix**: Data lineage matrix compatible with Excel (UTF-8 BOM).
+   - **📋 Export CSV: APIs Summary Table**: Full API execution log as a CSV spreadsheet.
+   - **📤 Export CSV: Payloads Table**: Catalog of all request parameters and dataset rows across APIs.
+   - **📥 Export CSV: Responses Table**: Catalog of all response parameters and dataset rows across APIs.
+   - **🎯 Per-API Export**: Export individual API payload or response tables directly from each card.
+   - **📦 Export Full JSON**: Exports the complete execution chain with raw and parsed trees.
 
 ---
 
@@ -63,7 +70,7 @@ ems-nexacro-extension/
    ```
 3. Enable **Developer mode** in the top-right corner.
 4. Click **Load unpacked** and select the `ems-nexacro-extension` directory.
-5. Open your EMS / Nexacro web application, execute actions, and open the extension popup to analyze API traffic and export dependencies as CSV or JSON.
+5. Open your EMS / Nexacro web application, execute actions, and open the extension popup to analyze API traffic and export tables as CSV or JSON.
 
 ---
 
